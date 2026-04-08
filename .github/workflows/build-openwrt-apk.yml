@@ -7,14 +7,6 @@ on:
         description: OpenWrt release version
         required: true
         default: "25.12.2"
-      target:
-        description: OpenWrt target
-        required: true
-        default: "x86"
-      subtarget:
-        description: OpenWrt subtarget
-        required: true
-        default: "64"
   push:
     branches:
       - main
@@ -32,17 +24,42 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: build-openwrt-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
     env:
       OPENWRT_RELEASE: ${{ github.event.inputs.openwrt_release || '25.12.2' }}
-      OPENWRT_TARGET: ${{ github.event.inputs.target || 'x86' }}
-      OPENWRT_SUBTARGET: ${{ github.event.inputs.subtarget || '64' }}
+      OPENWRT_TARGET: x86
+      OPENWRT_SUBTARGET: 64
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve SDK URL
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_base="https://downloads.openwrt.org/releases/${OPENWRT_RELEASE}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+          sdk_file="$(
+            curl -fsSL "${sdk_base}/" \
+              | grep -oE "openwrt-sdk-${OPENWRT_RELEASE}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}[^\"']*Linux-x86_64\.tar\.zst" \
+              | head -n1
+          )"
+
+          if [[ -z "${sdk_file}" ]]; then
+            echo "Failed to find SDK under ${sdk_base}" >&2
+            exit 1
+          fi
+
+          echo "sdk_base=${sdk_base}" >> "${GITHUB_OUTPUT}"
+          echo "sdk_file=${sdk_file}" >> "${GITHUB_OUTPUT}"
 
       - name: Install build dependencies
         run: |
@@ -66,35 +83,29 @@ jobs:
             zlib1g-dev \
             zstd
 
-      - name: Resolve SDK URL
-        id: sdk
+      - name: Cache SDK archive
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/openwrt/openwrt-sdk.tar.zst
+          key: sdk-${{ env.OPENWRT_RELEASE }}-${{ env.OPENWRT_TARGET }}-${{ env.OPENWRT_SUBTARGET }}-${{ steps.sdk.outputs.sdk_file }}
+
+      - name: Download SDK archive
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
 
-          sdk_base="https://downloads.openwrt.org/releases/${OPENWRT_RELEASE}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
-          sdk_file="$(
-            curl -fsSL "${sdk_base}/" \
-              | grep -oE "openwrt-sdk-${OPENWRT_RELEASE}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}[^\"']*Linux-x86_64\.tar\.zst" \
-              | head -n1
-          )"
-
-          if [[ -z "${sdk_file}" ]]; then
-            echo "Failed to find SDK under ${sdk_base}" >&2
-            exit 1
-          fi
-
-          echo "sdk_base=${sdk_base}" >> "${GITHUB_OUTPUT}"
-          echo "sdk_file=${sdk_file}" >> "${GITHUB_OUTPUT}"
+          mkdir -p .cache/openwrt
+          curl -fL "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}" -o .cache/openwrt/openwrt-sdk.tar.zst
 
       - name: Download and extract SDK
         shell: bash
         run: |
           set -euo pipefail
 
-          curl -fL "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}" -o openwrt-sdk.tar.zst
           mkdir -p sdk
-          tar --zstd -xf openwrt-sdk.tar.zst -C sdk --strip-components=1
+          tar --zstd -xf .cache/openwrt/openwrt-sdk.tar.zst -C sdk --strip-components=1
 
       - name: Update feeds
         working-directory: sdk
@@ -118,8 +129,8 @@ jobs:
       - name: Build lucky packages
         working-directory: sdk
         run: |
-          make package/lucky/lucky/compile V=s
-          make package/lucky/luci-app-lucky/compile V=s
+          make -j"$(nproc)" package/lucky/lucky/compile V=s
+          make -j"$(nproc)" package/lucky/luci-app-lucky/compile V=s
 
       - name: Collect build artifacts
         shell: bash
@@ -133,6 +144,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-apk-${{ env.OPENWRT_RELEASE }}-${{ env.OPENWRT_TARGET }}-${{ env.OPENWRT_SUBTARGET }}
+          name: openwrt-apk-${{ env.OPENWRT_RELEASE }}-x86_64
           path: dist/
+          compression-level: 0
           if-no-files-found: error
