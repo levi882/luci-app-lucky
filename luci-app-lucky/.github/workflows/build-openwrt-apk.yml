@@ -1,0 +1,138 @@
+name: Build OpenWrt APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      openwrt_release:
+        description: OpenWrt release version
+        required: true
+        default: "25.12.2"
+      target:
+        description: OpenWrt target
+        required: true
+        default: "x86"
+      subtarget:
+        description: OpenWrt subtarget
+        required: true
+        default: "64"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "lucky/**"
+      - "luci-app-lucky/**"
+      - ".github/workflows/build-openwrt-apk.yml"
+  pull_request:
+    paths:
+      - "lucky/**"
+      - "luci-app-lucky/**"
+      - ".github/workflows/build-openwrt-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      OPENWRT_RELEASE: ${{ github.event.inputs.openwrt_release || '25.12.2' }}
+      OPENWRT_TARGET: ${{ github.event.inputs.target || 'x86' }}
+      OPENWRT_SUBTARGET: ${{ github.event.inputs.subtarget || '64' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            file \
+            flex \
+            g++ \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            rsync \
+            unzip \
+            wget \
+            zlib1g-dev \
+            zstd
+
+      - name: Resolve SDK URL
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_base="https://downloads.openwrt.org/releases/${OPENWRT_RELEASE}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+          sdk_file="$(
+            curl -fsSL "${sdk_base}/" \
+              | grep -oE "openwrt-sdk-${OPENWRT_RELEASE}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}[^\"']*Linux-x86_64\.tar\.zst" \
+              | head -n1
+          )"
+
+          if [[ -z "${sdk_file}" ]]; then
+            echo "Failed to find SDK under ${sdk_base}" >&2
+            exit 1
+          fi
+
+          echo "sdk_base=${sdk_base}" >> "${GITHUB_OUTPUT}"
+          echo "sdk_file=${sdk_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download and extract SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl -fL "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}" -o openwrt-sdk.tar.zst
+          mkdir -p sdk
+          tar --zstd -xf openwrt-sdk.tar.zst -C sdk --strip-components=1
+
+      - name: Update feeds
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy package sources into SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p sdk/package/lucky
+          cp -r lucky sdk/package/lucky/
+          cp -r luci-app-lucky sdk/package/lucky/
+
+      - name: Prepare build configuration
+        working-directory: sdk
+        run: make defconfig
+
+      - name: Build lucky packages
+        working-directory: sdk
+        run: |
+          make package/lucky/lucky/compile V=s
+          make package/lucky/luci-app-lucky/compile V=s
+
+      - name: Collect build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.adb" \) -exec cp {} dist/ \;
+          ls -lh dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-apk-${{ env.OPENWRT_RELEASE }}-${{ env.OPENWRT_TARGET }}-${{ env.OPENWRT_SUBTARGET }}
+          path: dist/
+          if-no-files-found: error
