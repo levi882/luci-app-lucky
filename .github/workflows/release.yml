@@ -27,37 +27,12 @@ concurrency:
 
 jobs:
   build:
-    name: Build (${{ matrix.target }}/${{ matrix.subtarget }})
+    name: Build (x86/64)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86
-            subtarget: "64"
-          - target: x86
-            subtarget: generic
-          - target: ramips
-            subtarget: mt7621
-          - target: ath79
-            subtarget: generic
-          - target: ipq40xx
-            subtarget: generic
-          - target: ipq806x
-            subtarget: generic
-          - target: mvebu
-            subtarget: cortexa53
-          - target: mvebu
-            subtarget: cortexa72
-          - target: rockchip
-            subtarget: armv8
-          - target: bcm27xx
-            subtarget: bcm2711
-
     env:
       OPENWRT_RELEASE: ${{ github.event.inputs.openwrt_release || '25.12.2' }}
-      OPENWRT_TARGET: ${{ matrix.target }}
-      OPENWRT_SUBTARGET: ${{ matrix.subtarget }}
+      OPENWRT_TARGET: x86
+      OPENWRT_SUBTARGET: "64"
 
     steps:
       - name: Checkout repository
@@ -160,15 +135,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          dist_dir="dist/${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}"
-          mkdir -p "${dist_dir}"
-          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.ipk" \) -exec cp {} "${dist_dir}/" \;
-          ls -lh "${dist_dir}"
+          mkdir -p dist
+          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.ipk" \) -exec cp {} dist/ \;
+          ls -lh dist
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lucky-${{ env.OPENWRT_TARGET }}-${{ env.OPENWRT_SUBTARGET }}
+          name: lucky-x86_64
           path: dist/
           compression-level: 0
           if-no-files-found: error
@@ -178,9 +152,6 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -203,22 +174,12 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: lucky-x86_64
+          path: release
 
-      - name: Stage release files
+      - name: List release files
         shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p release
-          find artifacts -type f \( -name "*.apk" -o -name "*.ipk" \) -print0 \
-            | while IFS= read -r -d '' file; do
-                arch_dir="$(basename "$(dirname "${file}")")"
-                base="$(basename "${file}")"
-                cp "${file}" "release/${arch_dir}_${base}"
-              done
-
-          ls -lh release
+        run: ls -lh release
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
