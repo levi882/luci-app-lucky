@@ -136,7 +136,25 @@ jobs:
           set -euo pipefail
 
           mkdir -p dist
-          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.ipk" \) -exec cp {} dist/ \;
+
+          arch="$(ls sdk/bin/packages | head -n1)"
+          if [[ -z "${arch}" ]]; then
+            echo "Failed to detect package arch under sdk/bin/packages" >&2
+            exit 1
+          fi
+          echo "Detected arch: ${arch}"
+
+          while IFS= read -r -d '' file; do
+            base="$(basename "${file}")"
+            name="${base%.*}"
+            ext="${base##*.}"
+            cp "${file}" "dist/${name}_${arch}.${ext}"
+          done < <(find sdk/bin/packages -type f \
+            \( -name "lucky-*.apk" -o -name "lucky_*.ipk" \
+               -o -name "luci-app-lucky-*.apk" -o -name "luci-app-lucky_*.ipk" \
+               -o -name "luci-i18n-lucky-*.apk" -o -name "luci-i18n-lucky-*.ipk" \) \
+            -print0)
+
           ls -lh dist
 
       - name: Upload build artifacts
