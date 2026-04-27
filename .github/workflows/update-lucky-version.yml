@@ -247,6 +247,7 @@ jobs:
             libssl-dev \
             python3 \
             rsync \
+            upx-ucl \
             unzip \
             wget \
             zlib1g-dev \
@@ -341,6 +342,19 @@ jobs:
           fi
 
           ls -lh dist
+
+          max_size=$((25 * 1024 * 1024))
+          oversized=0
+          while IFS= read -r -d '' file; do
+            size="$(stat -c%s "${file}")"
+            if (( size > max_size )); then
+              echo "${file} is over the Cloudflare Pages 25 MiB file limit (${size} bytes)" >&2
+              oversized=1
+            fi
+          done < <(find dist -type f -print0)
+          if (( oversized )); then
+            exit 1
+          fi
 
       - name: Upload build artifacts
         if: steps.update.outputs.changed == 'true'

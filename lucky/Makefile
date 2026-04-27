@@ -14,6 +14,8 @@ LUCKY_VARIANT:=wanji
 LUCKY_VARIANT_SUFFIX:=$(if $(filter lucky,$(LUCKY_VARIANT)),,_$(LUCKY_VARIANT))
 LUCKY_CONF_DIR := /etc/config/lucky.daji
 LUCKY_TMP_BACKUP := /tmp/luckyconfdir
+LUCKY_USE_UPX?=1
+LUCKY_UPX_FLAGS?=--best --lzma
 
 ifeq ($(ARCH),mipsel)
 	LUCKY_ARCH:=mipsle_softfloat
@@ -77,6 +79,15 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	[ -f $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE) ] || wget $(LUCKY_DOWNLOAD_URL) -O $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE)
 	tar -xzvf $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE) -C $(PKG_BUILD_DIR)
+	chmod +x $(PKG_BUILD_DIR)/lucky
+	if [ "$(LUCKY_USE_UPX)" = "1" ]; then \
+		command -v upx >/dev/null 2>&1 || { echo "upx is required when LUCKY_USE_UPX=1" >&2; exit 1; }; \
+		echo "Lucky binary before UPX:"; \
+		ls -lh $(PKG_BUILD_DIR)/lucky; \
+		upx $(LUCKY_UPX_FLAGS) $(PKG_BUILD_DIR)/lucky; \
+		echo "Lucky binary after UPX:"; \
+		ls -lh $(PKG_BUILD_DIR)/lucky; \
+	fi
 endef
 
 
