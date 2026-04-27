@@ -1,0 +1,326 @@
+name: Update Lucky Version
+
+on:
+  schedule:
+    # Run every Sunday at 05:00 China time.
+    - cron: "0 21 * * 6"
+  workflow_dispatch:
+    inputs:
+      include_prerelease:
+        description: Include beta release directories
+        required: false
+        default: "true"
+      openwrt_release:
+        description: OpenWrt release version
+        required: true
+        default: "25.12.2"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-lucky-version
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_BASE: https://release.66666.host
+      LUCKY_VARIANT: wanji
+      INCLUDE_PRERELEASE: ${{ github.event.inputs.include_prerelease || 'true' }}
+      OPENWRT_RELEASE: ${{ github.event.inputs.openwrt_release || '25.12.2' }}
+      OPENWRT_TARGET: x86
+      OPENWRT_SUBTARGET: "64"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest upstream release
+        id: latest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          root_json="$(mktemp)"
+          curl -fsSL -H "Accept: application/json" "${RELEASE_BASE}/" -o "${root_json}"
+
+          python3 - "${root_json}" "${RELEASE_BASE}" "${LUCKY_VARIANT}" "${INCLUDE_PRERELEASE}" >> "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import re
+          import sys
+          import urllib.request
+
+          root_json, release_base, variant, include_prerelease = sys.argv[1:]
+          with open(root_json, encoding="utf-8") as fh:
+              root_items = json.load(fh)
+
+          stable_pattern = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+          beta_pattern = re.compile(r"^v(\d+)\.(\d+)\.(\d+)beta(\d+)$")
+
+          candidates = []
+          for item in root_items:
+              name = item.get("name", "")
+              if not item.get("is_dir"):
+                  continue
+              stable = stable_pattern.fullmatch(name)
+              beta = beta_pattern.fullmatch(name)
+              if stable:
+                  major, minor, patch = map(int, stable.groups())
+                  candidates.append(((major, minor, patch, 1, 0), item))
+              elif include_prerelease == "true" and beta:
+                  major, minor, patch, beta_no = map(int, beta.groups())
+                  candidates.append(((major, minor, patch, 0, beta_no), item))
+
+          if not candidates:
+              raise SystemExit("No matching Lucky release directories found")
+
+          _, release_item = max(candidates, key=lambda candidate: candidate[0])
+          release_dir = release_item["name"]
+          package_version = release_dir[1:] if release_dir.startswith("v") else release_dir
+
+          with urllib.request.urlopen(
+              urllib.request.Request(
+                  f"{release_base}/{release_dir}/",
+                  headers={"Accept": "application/json"},
+              )
+          ) as response:
+              release_items = json.load(response)
+
+          variant_dir = None
+          variant_suffix = f"_{variant}"
+          for item in release_items:
+              name = item.get("name", "")
+              if item.get("is_dir") and name.endswith(variant_suffix):
+                  variant_dir = name
+                  break
+          if not variant_dir:
+              raise SystemExit(f"Release {release_dir} does not include variant {variant}")
+
+          file_version = variant_dir[: -len(variant_suffix)]
+          with urllib.request.urlopen(
+              urllib.request.Request(
+                  f"{release_base}/{release_dir}/{variant_dir}/",
+                  headers={"Accept": "application/json"},
+              )
+          ) as response:
+              assets = {item["name"] for item in json.load(response)}
+
+          required_arches = ("x86_64",)
+          archive_suffix = "" if variant == "lucky" else f"_{variant}"
+          missing = [
+              f"lucky_{file_version}_Linux_{arch}{archive_suffix}.tar.gz"
+              for arch in required_arches
+              if f"lucky_{file_version}_Linux_{arch}{archive_suffix}.tar.gz" not in assets
+          ]
+          if missing:
+              raise SystemExit(
+                  "Latest Lucky release is missing package assets used by lucky/Makefile: "
+                  + ", ".join(missing)
+              )
+
+          print(f"package_version={package_version}")
+          print(f"release_dir={release_dir}")
+          print(f"file_version={file_version}")
+          print(f"variant={variant}")
+          print(f"url={release_base}/{release_dir}/{variant_dir}/")
+          PY
+
+      - name: Update package version
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_package_version="$(sed -n 's/^PKG_VERSION:=//p' lucky/Makefile | head -n1)"
+          current_release_dir="$(sed -n 's/^LUCKY_RELEASE_DIR:=//p' lucky/Makefile | head -n1)"
+          current_file_version="$(sed -n 's/^LUCKY_FILE_VERSION:=//p' lucky/Makefile | head -n1)"
+          current_variant="$(sed -n 's/^LUCKY_VARIANT:=//p' lucky/Makefile | head -n1)"
+
+          package_version="${{ steps.latest.outputs.package_version }}"
+          release_dir="${{ steps.latest.outputs.release_dir }}"
+          file_version="${{ steps.latest.outputs.file_version }}"
+          variant="${{ steps.latest.outputs.variant }}"
+
+          echo "current=${current_package_version}" >> "${GITHUB_OUTPUT}"
+          echo "latest=${package_version}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${current_package_version}" == "${package_version}" ]] && \
+             [[ "${current_release_dir}" == "${release_dir}" ]] && \
+             [[ "${current_file_version}" == "${file_version}" ]] && \
+             [[ "${current_variant}" == "${variant}" ]]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          sed -i -E \
+            -e "s/^PKG_VERSION:=.*/PKG_VERSION:=${package_version}/" \
+            -e "s|^LUCKY_RELEASE_DIR:=.*|LUCKY_RELEASE_DIR:=${release_dir}|" \
+            -e "s/^LUCKY_FILE_VERSION:=.*/LUCKY_FILE_VERSION:=${file_version}/" \
+            -e "s/^LUCKY_VARIANT:=.*/LUCKY_VARIANT:=${variant}/" \
+            lucky/Makefile
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Create update pull request
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LUCKY_VERSION: ${{ steps.latest.outputs.package_version }}
+          LUCKY_RELEASE_DIR: ${{ steps.latest.outputs.release_dir }}
+          LUCKY_FILE_VERSION: ${{ steps.latest.outputs.file_version }}
+          LUCKY_VARIANT: ${{ steps.latest.outputs.variant }}
+          LUCKY_URL: ${{ steps.latest.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          branch="automation/update-lucky-${LUCKY_VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${branch}"
+          git add lucky/Makefile
+          git commit -m "chore: update lucky to ${LUCKY_VERSION}"
+          git push --force-with-lease origin "${branch}"
+
+          body="$(mktemp)"
+          cat > "${body}" <<EOF
+          Updates the Lucky package version to ${LUCKY_VERSION}.
+
+          Source: ${LUCKY_URL}
+          Release directory: ${LUCKY_RELEASE_DIR}
+          File version: ${LUCKY_FILE_VERSION}
+          Variant: ${LUCKY_VARIANT}
+
+          This workflow verified that the release includes all architecture assets referenced by lucky/Makefile before opening this PR.
+          EOF
+
+          gh pr view "${branch}" --json number >/dev/null 2>&1 || \
+            gh pr create \
+              --base "${GITHUB_REF_NAME}" \
+              --head "${branch}" \
+              --title "chore: update lucky to ${LUCKY_VERSION}" \
+              --body-file "${body}"
+
+      - name: Resolve SDK URL
+        if: steps.update.outputs.changed == 'true'
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_base="https://downloads.openwrt.org/releases/${OPENWRT_RELEASE}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+          sdk_file="$(
+            curl -fsSL "${sdk_base}/" \
+              | grep -oE "openwrt-sdk-${OPENWRT_RELEASE}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}[^\"']*Linux-x86_64\.tar\.zst" \
+              | head -n1
+          )"
+
+          if [[ -z "${sdk_file}" ]]; then
+            echo "Failed to find SDK under ${sdk_base}" >&2
+            exit 1
+          fi
+
+          echo "sdk_base=${sdk_base}" >> "${GITHUB_OUTPUT}"
+          echo "sdk_file=${sdk_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install build dependencies
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            file \
+            flex \
+            g++ \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            rsync \
+            unzip \
+            wget \
+            zlib1g-dev \
+            zstd
+
+      - name: Cache SDK archive
+        if: steps.update.outputs.changed == 'true'
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/openwrt/openwrt-sdk.tar.zst
+          key: sdk-${{ env.OPENWRT_RELEASE }}-${{ env.OPENWRT_TARGET }}-${{ env.OPENWRT_SUBTARGET }}-${{ steps.sdk.outputs.sdk_file }}
+
+      - name: Download SDK archive
+        if: steps.update.outputs.changed == 'true' && steps.sdk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .cache/openwrt
+          curl -fL "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}" -o .cache/openwrt/openwrt-sdk.tar.zst
+
+      - name: Extract SDK
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p sdk
+          tar --zstd -xf .cache/openwrt/openwrt-sdk.tar.zst -C sdk --strip-components=1
+
+      - name: Update feeds
+        if: steps.update.outputs.changed == 'true'
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy package sources into SDK
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p sdk/package/lucky
+          cp -r lucky sdk/package/lucky/
+          cp -r luci-app-lucky sdk/package/lucky/
+
+      - name: Prepare build configuration
+        if: steps.update.outputs.changed == 'true'
+        working-directory: sdk
+        run: make defconfig
+
+      - name: Build lucky packages
+        if: steps.update.outputs.changed == 'true'
+        working-directory: sdk
+        run: |
+          make -j"$(nproc)" package/lucky/lucky/compile V=s
+          make -j"$(nproc)" package/lucky/luci-app-lucky/compile V=s
+
+      - name: Collect build artifacts
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.adb" \) -exec cp {} dist/ \;
+          ls -lh dist
+
+      - name: Upload build artifacts
+        if: steps.update.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lucky-wanji-x86_64-${{ steps.latest.outputs.package_version }}
+          path: dist/
+          compression-level: 0
+          if-no-files-found: error

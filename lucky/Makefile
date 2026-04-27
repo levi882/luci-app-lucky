@@ -4,9 +4,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lucky
-PKG_VERSION:=2.27.2
+PKG_VERSION:=3.0.0beta5
 PKG_RELEASE:=1
 PKGARCH:=all 
+LUCKY_RELEASE_BASE:=https://release.66666.host
+LUCKY_RELEASE_DIR:=v3.0.0beta5
+LUCKY_FILE_VERSION:=3.0.0
+LUCKY_VARIANT:=wanji
+LUCKY_VARIANT_SUFFIX:=$(if $(filter lucky,$(LUCKY_VARIANT)),,_$(LUCKY_VARIANT))
 LUCKY_CONF_DIR := /etc/config/lucky.daji
 LUCKY_TMP_BACKUP := /tmp/luckyconfdir
 
@@ -48,6 +53,8 @@ PKG_MAINTAINER:=GDY666 <gdy666@foxmail.com>
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 PKG_HASH:=skip
+LUCKY_ARCHIVE:=$(PKG_NAME)_$(LUCKY_FILE_VERSION)_Linux_$(LUCKY_ARCH)$(LUCKY_VARIANT_SUFFIX).tar.gz
+LUCKY_DOWNLOAD_URL:=$(LUCKY_RELEASE_BASE)/$(LUCKY_RELEASE_DIR)/$(LUCKY_FILE_VERSION)_$(LUCKY_VARIANT)/$(LUCKY_ARCHIVE)
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -55,7 +62,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Lucky gdy
-	DEPENDS:=@(i386||x86_64||arm||aarch64||mipsel||mips)
+	DEPENDS:=@x86_64
 	URL:=https://github.com/gdy666/lucky
 endef
 
@@ -67,8 +74,9 @@ endef
 
 
 define Build/Prepare
-	[ ! -f $(PKG_BUILD_DIR)/$(PKG_NAME)_$(PKG_VERSION)_Linux_$(LUCKY_ARCH).tar.gz ] && wget https://github.com/gdy666/lucky/releases/download/v$(PKG_VERSION)/$(PKG_NAME)_$(PKG_VERSION)_Linux_$(LUCKY_ARCH).tar.gz -O $(PKG_BUILD_DIR)/$(PKG_NAME)_$(PKG_VERSION)_Linux_$(LUCKY_ARCH).tar.gz
-	tar -xzvf $(PKG_BUILD_DIR)/$(PKG_NAME)_$(PKG_VERSION)_Linux_$(LUCKY_ARCH).tar.gz -C $(PKG_BUILD_DIR)
+	mkdir -p $(PKG_BUILD_DIR)
+	[ -f $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE) ] || wget $(LUCKY_DOWNLOAD_URL) -O $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE)
+	tar -xzvf $(PKG_BUILD_DIR)/$(LUCKY_ARCHIVE) -C $(PKG_BUILD_DIR)
 endef
 
 
