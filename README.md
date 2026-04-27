@@ -1,97 +1,106 @@
+# luci-app-lucky
 
-## 怎么确定当前系统CPU架构下载相应lucky核心包
-复制以下指令到终端执行,根据显示下载文件名含有架构字符串的ipk包
+OpenWrt LuCI support package for Lucky.
+
+本仓库当前只面向 OpenWrt x86_64 构建 `wanji` 版本，不再维护多架构包。
+
+## 当前版本
+
+- Lucky 本体: `3.0.0_beta5`
+- 上游下载源: `https://release.66666.host`
+- 上游目录: `v3.0.0beta5/3.0.0_wanji`
+- 上游文件: `lucky_3.0.0_Linux_x86_64_wanji.tar.gz`
+- LuCI 界面: `luci-app-lucky`
+- 翻译包: `luci-i18n-lucky-zh-cn`
+
+注意: 上游目录使用 `beta5`，OpenWrt APK 包版本使用合法格式 `_beta5`。
+
+## Release 产物
+
+GitHub Release 中应包含以下三个包:
+
+```text
+lucky-*_x86_64.apk
+luci-app-lucky-*_x86_64.apk
+luci-i18n-lucky-zh-cn-*_x86_64.apk
 ```
-cd /tmp ;if [ -f /usr/bin/curl ];then curl -sSO http://release.66666.host/luckyarch.sh;else wget -O http://release.66666.host/luckyarch.sh;fi;sh luckyarch.sh 
+
+依赖包不会作为 Release 附件发布。
+
+## 安装
+
+上传三个 `.apk` 包到 OpenWrt 后安装:
+
+```sh
+apk add --allow-untrusted lucky-*_x86_64.apk
+apk add --allow-untrusted luci-app-lucky-*_x86_64.apk
+apk add --allow-untrusted luci-i18n-lucky-zh-cn-*_x86_64.apk
 ```
 
+安装后可在 LuCI 菜单中找到 Lucky。
 
-## 1.X升级2.X版本注意
+## 卸载
 
-第一种方法：先通过lucky后台上传tar.gz方式升级lucky
-再安装
-
-- luci-app-lucky 
-- luci-i18n-lucky-zh-cn 
-
-两个ipk包
-
-第二种方法：
-
-lucky后台备份配置下载保存后，将lucky相关IPK卸载干净
-```
-opkg remove lucky
-opkg remove luci-i18n-lucky-zh-cn
-opkg remove luci-app-lucky
+```sh
+apk del luci-i18n-lucky-zh-cn
+apk del luci-app-lucky
+apk del lucky
 ```
 
-再安装 
-- lucky 
-- luci-app-lucky 
-- luci-i18n-lucky-zh-cn 
+升级大版本前建议先在 Lucky 后台备份配置。
 
-三个ipk包
+## 自动更新
 
+`.github/workflows/update-lucky-version.yml` 会在每周日北京时间 05:00 运行。
 
+流程:
 
-本分支本人自用,仅供参考.
-配置文件架构和https://github.com/sirpdboy/luci-app-lucky 版本可能存在冲突,
+1. 读取 `https://release.66666.host/` 的 JSON 目录
+2. 查找最新 `wanji` 版本
+3. 校验 `Linux_x86_64_wanji.tar.gz` 是否存在
+4. 更新 `lucky/Makefile`
+5. 编译 OpenWrt x86_64 APK
+6. 上传 artifact
+7. 发布 GitHub Release，并设为 Latest
 
-替换版本前请使用前备份下载lucky配置
+手动运行时可以修改 `openwrt_release`，默认是 `25.12.2`。
 
-然后执行执行
+## 手动构建
+
+GitHub Actions 中可以手动运行 `Build OpenWrt APK`。
+
+该 workflow 会:
+
+- 使用 OpenWrt x86/64 SDK
+- 编译 `lucky`
+- 编译 `luci-app-lucky`
+- 收集 `lucky`、`luci-app-lucky`、`luci-i18n-lucky-zh-cn`
+- 自动发布 GitHub Release
+
+## 加入 OpenWrt SDK 或源码树
+
+进入 OpenWrt SDK 或源码根目录:
+
+```sh
+git clone https://github.com/levi882/luci-app-lucky.git package/lucky
 ```
-opkg remove lucky
-opkg remove luci-i18n-lucky-zh-cn
-opkg remove luci-app-lucky
+
+更新 feeds:
+
+```sh
+./scripts/feeds update -a
+./scripts/feeds install -a
+make defconfig
 ```
-卸载删除干净之前文件.
 
+编译:
 
-
-
-最新版本编译好的IPK包请在
-https://url21.ctfile.com/d/44547821-55537427-a5525e?p=16601
-下载
-
-
-
-
-
-## 使用方法
-   
-- 将luci-app-lucky添加至 LEDE/OpenWRT 源码的方法。
-
-
-
-### 下载源码：
-
- ```Brach 
- 
-    进入lede/openwrt项目根目录下
-    # 下载源码
-	
-    git clone  https://github.com/gdy666/luci-app-lucky.git package/lucky
-	
- ``` 
-### 配置菜单
-
- ```Brach
-    make menuconfig
-	# 找到 LuCI -> Applications, 选择 luci-app-lucky, 保存后退出。
- ``` 
- 
-### 编译
-
- ```Brach 
-    # 编译lucky IPK包
-    make package/lucky/lucky/compile V=s
-    # 编译luci-app-lucky IPK包
-    make package/lucky/luci-app-lucky/compile V=s
-    
- ```
-
+```sh
+make package/lucky/lucky/compile V=s
+make package/lucky/luci-app-lucky/compile V=s
+```
 
 ## 截图
+
 ![](./previews/001.png)
 ![](./previews/002.png)
