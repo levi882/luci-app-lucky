@@ -356,6 +356,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.latest.outputs.package_version }}
+          target_commitish: ${{ github.sha }}
           name: Lucky wanji ${{ steps.latest.outputs.package_version }}
           body: |
             Lucky wanji ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
@@ -367,5 +368,6 @@ jobs:
             This release was created automatically after detecting a new upstream build on https://release.66666.host/.
           prerelease: false
           make_latest: true
+          overwrite_files: true
           files: dist/*
           fail_on_unmatched_files: true
