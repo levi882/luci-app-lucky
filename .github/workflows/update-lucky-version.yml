@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RELEASE_BASE: https://release.66666.host
-      LUCKY_VARIANT: wanji
+      LUCKY_VARIANT: lucky
       INCLUDE_PRERELEASE: ${{ github.event.inputs.include_prerelease || 'true' }}
       OPENWRT_RELEASE: ${{ github.event.inputs.openwrt_release || '25.12.2' }}
       OPENWRT_TARGET: x86
@@ -360,7 +360,7 @@ jobs:
         if: steps.update.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: lucky-wanji-x86_64-${{ steps.latest.outputs.package_version }}
+          name: lucky-x86_64-${{ steps.latest.outputs.package_version }}
           path: dist/
           compression-level: 0
           if-no-files-found: error
@@ -371,9 +371,9 @@ jobs:
         with:
           tag_name: v${{ steps.latest.outputs.package_version }}
           target_commitish: ${{ github.sha }}
-          name: Lucky wanji ${{ steps.latest.outputs.package_version }}
+          name: Lucky ${{ steps.latest.outputs.package_version }}
           body: |
-            Lucky wanji ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
+            Lucky ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
 
             Source: ${{ steps.latest.outputs.url }}
             Release directory: ${{ steps.latest.outputs.release_dir }}

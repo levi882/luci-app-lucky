@@ -2,14 +2,14 @@
 
 OpenWrt LuCI support package for Lucky.
 
-本仓库当前只面向 OpenWrt x86_64 构建 `wanji` 版本，不再维护多架构包。
+本仓库当前只面向 OpenWrt x86_64 构建 `lucky` 版本，不再维护多架构包。
 
 ## 当前版本
 
 - Lucky 本体: `3.0.0_beta5`
 - 上游下载源: `https://release.66666.host`
-- 上游目录: `v3.0.0beta5/3.0.0_wanji`
-- 上游文件: `lucky_3.0.0_Linux_x86_64_wanji.tar.gz`
+- 上游目录: `v3.0.0beta5/3.0.0_lucky`
+- 上游文件: `lucky_3.0.0_Linux_x86_64.tar.gz`
 - LuCI 界面: `luci-app-lucky`
 - 翻译包: `luci-i18n-lucky-zh-cn`
 
@@ -56,8 +56,8 @@ apk del lucky
 流程:
 
 1. 读取 `https://release.66666.host/` 的 JSON 目录
-2. 查找最新 `wanji` 版本
-3. 校验 `Linux_x86_64_wanji.tar.gz` 是否存在
+2. 查找最新 `lucky` 版本
+3. 校验 `Linux_x86_64.tar.gz` 是否存在
 4. 更新 `lucky/Makefile`
 5. 编译 OpenWrt x86_64 APK
 6. 上传 artifact
