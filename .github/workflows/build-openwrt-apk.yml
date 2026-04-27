@@ -22,7 +22,7 @@ on:
       - ".github/workflows/build-openwrt-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-openwrt-apk-${{ github.ref }}
@@ -39,6 +39,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve package metadata
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          lucky_version="$(sed -n 's/^PKG_VERSION:=//p' lucky/Makefile | head -n1)"
+          if [[ -z "${lucky_version}" ]]; then
+            echo "Failed to resolve lucky package version" >&2
+            exit 1
+          fi
+
+          echo "version=${lucky_version}" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve SDK URL
         id: sdk
@@ -138,13 +152,51 @@ jobs:
           set -euo pipefail
 
           mkdir -p dist
-          find sdk/bin/packages -type f \( -name "*.apk" -o -name "*.adb" \) -exec cp {} dist/ \;
+
+          arch="$(find sdk/bin/packages -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
+          if [[ -z "${arch}" ]]; then
+            echo "Failed to detect package arch under sdk/bin/packages" >&2
+            exit 1
+          fi
+          echo "Detected arch: ${arch}"
+
+          count=0
+          while IFS= read -r -d '' file; do
+            base="$(basename "${file}")"
+            name="${base%.*}"
+            ext="${base##*.}"
+            cp "${file}" "dist/${name}_${arch}.${ext}"
+            count=$((count + 1))
+          done < <(find sdk/bin/packages -type f \
+            \( -name "lucky-*.apk" -o -name "lucky_*.ipk" \
+               -o -name "luci-app-lucky-*.apk" -o -name "luci-app-lucky_*.ipk" \) \
+            -print0)
+
+          if [[ "${count}" -eq 0 ]]; then
+            echo "No lucky package artifacts found" >&2
+            exit 1
+          fi
+
           ls -lh dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-apk-${{ env.OPENWRT_RELEASE }}-x86_64
+          name: lucky-wanji-x86_64-${{ steps.pkg.outputs.version }}
           path: dist/
           compression-level: 0
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.pkg.outputs.version }}
+          name: Lucky wanji ${{ steps.pkg.outputs.version }}
+          body: |
+            Lucky wanji ${{ steps.pkg.outputs.version }} for OpenWrt x86_64.
+
+            Built with OpenWrt SDK ${{ env.OPENWRT_RELEASE }}.
+          prerelease: ${{ contains(steps.pkg.outputs.version, '_beta') }}
+          files: dist/*
+          fail_on_unmatched_files: true
