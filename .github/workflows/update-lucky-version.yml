@@ -325,3 +325,20 @@ jobs:
           path: dist/
           compression-level: 0
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: steps.update.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.latest.outputs.package_version }}
+          name: Lucky wanji ${{ steps.latest.outputs.package_version }}
+          body: |
+            Lucky wanji ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
+
+            Source: ${{ steps.latest.outputs.url }}
+            Release directory: ${{ steps.latest.outputs.release_dir }}
+            File version: ${{ steps.latest.outputs.file_version }}
+
+            This release was created automatically after detecting a new upstream build on https://release.66666.host/.
+          files: dist/*
+          fail_on_unmatched_files: true
