@@ -81,7 +81,8 @@ jobs:
 
           _, release_item = max(candidates, key=lambda candidate: candidate[0])
           release_dir = release_item["name"]
-          package_version = release_dir[1:] if release_dir.startswith("v") else release_dir
+          raw_package_version = release_dir[1:] if release_dir.startswith("v") else release_dir
+          package_version = re.sub(r"beta(\d+)$", r"_beta\1", raw_package_version)
 
           with urllib.request.urlopen(
               urllib.request.Request(

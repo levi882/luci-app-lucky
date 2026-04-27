@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lucky
-PKG_VERSION:=3.0.0beta5
+PKG_VERSION:=3.0.0_beta5
 PKG_RELEASE:=1
 PKGARCH:=all 
 LUCKY_RELEASE_BASE:=https://release.66666.host
