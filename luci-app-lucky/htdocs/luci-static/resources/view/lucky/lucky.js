@@ -99,12 +99,8 @@ function switchInternetAccess(allow) {
 
 function changeHttpPort() {
 	var input = document.getElementById('_luckyHttpPortInput');
-	var current = input ? input.value : '';
-	var value = prompt(_('NewHttpPort'), current);
+	var value = input ? input.value.trim() : '';
 	var port;
-
-	if (value == null || value === current)
-		return;
 
 	if (!/^\d+$/.test(value)) {
 		alert(_('portValueError'));
@@ -123,11 +119,7 @@ function changeHttpPort() {
 
 function changeSafeURL() {
 	var input = document.getElementById('_luckySafeURLInput');
-	var current = input ? input.value : '';
-	var value = prompt(_('Admin Safe URL'), current);
-
-	if (value == null || value === current)
-		return;
+	var value = input ? input.value.trim() : '';
 
 	return setLuckyConfig('admin_safe_url', value);
 }
@@ -140,7 +132,6 @@ function resetAuthInfo() {
 function updateStatus(running) {
 	var status = document.getElementById('_luckyStatus');
 	var adminOpen = document.getElementById('_luckyAdminOpen');
-	var adminLink = document.getElementById('_luckyAdminLink');
 
 	if (running) {
 		appendContent(status, [
@@ -152,7 +143,6 @@ function updateStatus(running) {
 			})
 		]);
 		appendContent(adminOpen, state.adminUrl ? externalLink(state.adminUrl) : '');
-		appendContent(adminLink, state.adminUrl ? E('strong', {}, externalLink(state.adminUrl)) : '');
 	}
 	else if (state.installed) {
 		appendContent(status, [
@@ -164,12 +154,10 @@ function updateStatus(running) {
 			})
 		]);
 		appendContent(adminOpen, '');
-		appendContent(adminLink, '');
 	}
 	else {
 		appendContent(status, badge(_('Not installed'), 'red'));
 		appendContent(adminOpen, '');
-		appendContent(adminLink, '');
 	}
 }
 
@@ -208,7 +196,6 @@ function setNotInstalled() {
 		space(),
 		renderLatestButton()
 	]);
-	appendContent(document.getElementById('_luckyAdminLink'), '');
 	updateStatus(false);
 }
 
@@ -276,7 +263,8 @@ function refreshInfo() {
 				type: 'text',
 				'class': 'cbi-input-text',
 				style: 'width:30%',
-				disabled: '',
+				inputmode: 'numeric',
+				pattern: '[0-9]*',
 				value: port
 			}),
 			space(),
@@ -288,7 +276,6 @@ function refreshInfo() {
 				type: 'text',
 				'class': 'cbi-input-text',
 				style: 'width:30%',
-				disabled: '',
 				value: safeURL
 			}),
 			space(),
@@ -327,9 +314,6 @@ function infoRow(label, id) {
 
 function renderStatusSections() {
 	return E('div', { 'class': 'lucky-status' }, [
-		E('fieldset', { 'class': 'cbi-section' }, [
-			E('p', { id: '_luckyAdminLink' })
-		]),
 		E('fieldset', { 'class': 'cbi-section' }, [
 			E('legend', {}, _('Main Program Information')),
 			E('table', {}, [
@@ -375,7 +359,7 @@ return view.extend({
 
 		return m.render().then(function(mapNode) {
 			window.setTimeout(refreshInfo, 0);
-			return E('div', {}, [ sections, mapNode ]);
+			return E('div', {}, [ mapNode, sections ]);
 		});
 	},
 
