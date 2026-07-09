@@ -1,0 +1,112 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { popen } from 'fs';
+
+function shellquote(value) {
+	return "'" + join("'\\''", split(value ?? '', "'")) + "'";
+}
+
+function readCommand(command) {
+	let output = '';
+	const process = popen(command);
+
+	if (process) {
+		output = trim(process.read('all'));
+		process.close();
+	}
+
+	return output;
+}
+
+function getConfigDir() {
+	return readCommand('uci -q get lucky.@lucky[0].configdir');
+}
+
+function getBaseConfigureInfo() {
+	const configDir = getConfigDir();
+	return readCommand('/usr/bin/lucky -baseConfInfo -cd ' + shellquote(configDir));
+}
+
+function setLuckyConf(key, value) {
+	const configDir = getConfigDir();
+	let command = '/usr/bin/lucky -setconf -key ' + shellquote(key);
+
+	if (value != null && value != '') {
+		command += ' -value ' + shellquote(value);
+	}
+
+	command += ' -cd ' + shellquote(configDir);
+
+	return system(command) == 0;
+}
+
+function serviceAction(action) {
+	if (action == 'restart' || action == 'start') {
+		system(['uci', 'set', 'lucky.@lucky[0].enabled=1']);
+		system(['uci', 'commit', 'lucky']);
+		return system(['service', 'lucky', action]) == 0;
+	}
+
+	if (action == 'stop') {
+		system(['uci', 'set', 'lucky.@lucky[0].enabled=0']);
+		system(['uci', 'commit', 'lucky']);
+		return system(['service', 'lucky', 'stop']) == 0;
+	}
+
+	return false;
+}
+
+const methods = {
+	status: {
+		call: function() {
+			return { running: system("pgrep -f 'lucky -c' >/dev/null") == 0 };
+		}
+	},
+
+	info: {
+		call: function() {
+			return {
+				luckyInfo: readCommand('/usr/bin/lucky -info'),
+				LuckyBaseConfigure: getBaseConfigureInfo(),
+				luckyArch: readCommand('/usr/bin/luckyarch')
+			};
+		}
+	},
+
+	set_config: {
+		args: { key: 'key', value: 'value' },
+		call: function(req) {
+			const key = req.args?.key;
+			const value = req.args?.value ?? '';
+			let success = false;
+
+			if (key == 'admin_http_port') {
+				success = setLuckyConf('AdminWebListenPort', value);
+			}
+			else if (key == 'admin_safe_url') {
+				success = setLuckyConf('SetSafeURL', value);
+			}
+			else if (key == 'reset_auth_info') {
+				success = setLuckyConf('AdminAccount', '666') &&
+					setLuckyConf('AdminPassword', '666') &&
+					serviceAction('restart');
+			}
+			else if (key == 'switch_Internetaccess') {
+				success = setLuckyConf('AllowInternetaccess', value);
+			}
+
+			return { ret: success ? 0 : 1 };
+		}
+	},
+
+	service: {
+		args: { action: 'action' },
+		call: function(req) {
+			return { ret: serviceAction(req.args?.action) ? 0 : 1 };
+		}
+	}
+};
+
+return { 'luci.lucky': methods };
