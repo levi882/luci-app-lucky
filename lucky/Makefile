@@ -4,12 +4,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lucky
-PKG_VERSION:=3.1.3_beta
+PKG_VERSION:=3.1.4_beta
 PKG_RELEASE:=3
 PKGARCH:=all 
 LUCKY_RELEASE_BASE:=https://release.66666.host
-LUCKY_RELEASE_DIR:=v3.1.3beta
-LUCKY_FILE_VERSION:=3.1.3
+LUCKY_RELEASE_DIR:=v3.1.4beta
+LUCKY_FILE_VERSION:=3.1.4
 LUCKY_VARIANT:=lucky
 LUCKY_VARIANT_SUFFIX:=$(if $(filter lucky,$(LUCKY_VARIANT)),,_$(LUCKY_VARIANT))
 LUCKY_CONF_DIR := /etc/config/lucky.daji
