@@ -278,14 +278,25 @@ jobs:
             exit 1
           fi
 
+          sdk_sha256="$(
+            curl -fsSL --retry 3 --connect-timeout 30 --max-time 60 "${sdk_base}/sha256sums" \
+              | awk -v filename="${sdk_file}" '$2 == filename || $2 == "*" filename { print $1 }'
+          )"
+          if [[ ! "${sdk_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Failed to resolve SDK SHA-256 for ${sdk_file}" >&2
+            exit 1
+          fi
+
           echo "sdk_base=${sdk_base}" >> "${GITHUB_OUTPUT}"
           echo "sdk_file=${sdk_file}" >> "${GITHUB_OUTPUT}"
+          echo "sdk_sha256=${sdk_sha256}" >> "${GITHUB_OUTPUT}"
 
       - name: Install build dependencies
         if: steps.update.outputs.changed == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            aria2 \
             build-essential \
             clang \
             file \
@@ -320,7 +331,12 @@ jobs:
           set -euo pipefail
 
           mkdir -p .cache/openwrt
-          curl -fL "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}" -o .cache/openwrt/openwrt-sdk.tar.zst
+          aria2c --max-connection-per-server=8 --split=8 --min-split-size=4M \
+            --file-allocation=none --auto-file-renaming=false \
+            --connect-timeout=30 --timeout=60 --max-tries=3 --retry-wait=5 \
+            --check-integrity=true --checksum="sha-256=${{ steps.sdk.outputs.sdk_sha256 }}" \
+            --dir=.cache/openwrt --out=openwrt-sdk.tar.zst \
+            "${{ steps.sdk.outputs.sdk_base }}/${{ steps.sdk.outputs.sdk_file }}"
 
       - name: Extract SDK
         if: steps.update.outputs.changed == 'true'
