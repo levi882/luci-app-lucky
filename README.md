@@ -6,14 +6,14 @@ OpenWrt LuCI support package for Lucky.
 
 ## 当前版本
 
-- Lucky 本体: `3.0.0_beta5`
+- Lucky 本体: `3.0.0_beta8`（仓库内的包版本；自动更新会创建新版本 PR）
 - 上游下载源: `https://release.66666.host`
-- 上游目录: `v3.0.0beta5/3.0.0_lucky`
+- 上游目录: `v3.0.0beta8/3.0.0_lucky`
 - 上游文件: `lucky_3.0.0_Linux_x86_64.tar.gz`
 - LuCI 界面: `luci-app-lucky`
 - 翻译包: `luci-i18n-lucky-zh-cn`
 
-注意: 上游目录使用 `beta5`，OpenWrt APK 包版本使用合法格式 `_beta5`。
+注意: 上游目录中的 `beta8` 和无序号的 `beta` 分别转换为 OpenWrt APK 包版本后缀 `_beta8` 和 `_beta`。
 
 ## Release 产物
 
@@ -55,15 +55,20 @@ apk del lucky
 
 流程:
 
-1. 读取 `https://release.66666.host/` 的 JSON 目录
-2. 查找最新 `lucky` 版本
+1. 读取 `https://release.66666.host/` 的目录，每级请求添加唯一查询参数以避免 CDN 返回缓存的 HTML；若仍返回 HTML，则解析页面中的文件链接
+2. 查找最新 `lucky` 版本，兼容正式版、`beta8` 和无序号的 `beta`；同版本下正式版优先于 beta
 3. 校验 `Linux_x86_64.tar.gz` 是否存在
 4. 更新 `lucky/Makefile`
-5. 编译 OpenWrt x86_64 APK
-6. 上传 artifact
-7. 发布 GitHub Release，并设为 Latest
+5. 创建版本更新 PR
+6. 编译 OpenWrt x86_64 APK
+7. 上传 artifact
+8. 发布 GitHub Release，并设为 Latest
 
 手动运行时可以修改 `openwrt_release`，默认是 `25.12.2`。
+
+修复同步工作流后，需要将修改推送到默认分支，再手动运行 `Update Lucky Version`。重新运行旧的失败任务会继续使用旧脚本。
+
+上游目录解析逻辑直接写在工作流的 `Resolve latest upstream release` 步骤中。
 
 ## 手动构建
 

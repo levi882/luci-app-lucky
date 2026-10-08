@@ -46,89 +46,139 @@ jobs:
         run: |
           set -euo pipefail
 
-          root_json="$(mktemp)"
-          curl -fsSL -H "Accept: application/json" "${RELEASE_BASE}/" -o "${root_json}"
-
-          python3 - "${root_json}" "${RELEASE_BASE}" "${LUCKY_VARIANT}" "${INCLUDE_PRERELEASE}" >> "${GITHUB_OUTPUT}" <<'PY'
+          python3 - "${RELEASE_BASE}" "${LUCKY_VARIANT}" "${INCLUDE_PRERELEASE}" >> "${GITHUB_OUTPUT}" <<'PY'
           import json
           import re
           import sys
+          import urllib.parse
           import urllib.request
+          import uuid
+          from html.parser import HTMLParser
 
-          root_json, release_base, variant, include_prerelease = sys.argv[1:]
-          with open(root_json, encoding="utf-8") as fh:
-              root_items = json.load(fh)
 
-          stable_pattern = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-          beta_pattern = re.compile(r"^v(\d+)\.(\d+)\.(\d+)beta(\d+)$")
+          class DirectoryLinks(HTMLParser):
+              """Read immediate file links from the upstream HTML directory listing."""
 
-          candidates = []
-          for item in root_items:
-              name = item.get("name", "")
-              if not item.get("is_dir"):
-                  continue
-              stable = stable_pattern.fullmatch(name)
-              beta = beta_pattern.fullmatch(name)
-              if stable:
-                  major, minor, patch = map(int, stable.groups())
-                  candidates.append(((major, minor, patch, 1, 0), item))
-              elif include_prerelease == "true" and beta:
-                  major, minor, patch, beta_no = map(int, beta.groups())
-                  candidates.append(((major, minor, patch, 0, beta_no), item))
+              def __init__(self):
+                  super().__init__()
+                  self.items = []
 
-          if not candidates:
-              raise SystemExit("No matching Lucky release directories found")
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+                  if tag != "a" or "file-link" not in attrs.get("class", "").split():
+                      return
+                  match = re.fullmatch(r"\./([^/?#]+)(/?)", attrs.get("href", ""))
+                  if not match:
+                      return
+                  name = urllib.parse.unquote(match[1])
+                  if name in (".", "..") or "/" in name or "\\" in name:
+                      return
+                  self.items.append({"name": name, "is_dir": bool(match[2])})
 
-          _, release_item = max(candidates, key=lambda candidate: candidate[0])
-          release_dir = release_item["name"]
-          raw_package_version = release_dir[1:] if release_dir.startswith("v") else release_dir
-          package_version = re.sub(r"beta(\d+)$", r"_beta\1", raw_package_version)
 
-          with urllib.request.urlopen(
-              urllib.request.Request(
-                  f"{release_base}/{release_dir}/",
-                  headers={"Accept": "application/json"},
+          def fetch_directory(url):
+              # The CDN may serve cached HTML even when Accept requests JSON. Give each
+              # directory request a fresh cache key, including nested release directories.
+              request_url = f"{url}?lucky_sync={uuid.uuid4().hex}"
+              request = urllib.request.Request(
+                  request_url,
+                  headers={"Accept": "application/json", "Cache-Control": "no-cache"},
               )
-          ) as response:
-              release_items = json.load(response)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  body = response.read().decode("utf-8-sig")
+                  content_type = response.headers.get("Content-Type", "unknown")
 
-          variant_dir = None
-          variant_suffix = f"_{variant}"
-          for item in release_items:
-              name = item.get("name", "")
-              if item.get("is_dir") and name.endswith(variant_suffix):
-                  variant_dir = name
-                  break
-          if not variant_dir:
-              raise SystemExit(f"Release {release_dir} does not include variant {variant}")
+              try:
+                  items = json.loads(body)
+              except json.JSONDecodeError:
+                  parser = DirectoryLinks()
+                  parser.feed(body)
+                  items = parser.items
+                  if not items:
+                      raise ValueError(
+                          f"Upstream directory {url} returned {content_type}, "
+                          "with neither valid JSON nor supported HTML file links"
+                      ) from None
+                  print(f"Upstream returned HTML for {url}; using directory links", file=sys.stderr)
 
-          file_version = variant_dir[: -len(variant_suffix)]
-          with urllib.request.urlopen(
-              urllib.request.Request(
-                  f"{release_base}/{release_dir}/{variant_dir}/",
-                  headers={"Accept": "application/json"},
+              if not isinstance(items, list) or any(
+                  not isinstance(item, dict)
+                  or not isinstance(item.get("name"), str)
+                  or not isinstance(item.get("is_dir"), bool)
+                  for item in items
+              ):
+                  raise ValueError(f"Invalid upstream directory listing at {url}")
+              return items
+
+
+          def release_key(name, include_prerelease):
+              match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:beta(\d*))?", name)
+              if not match:
+                  return None
+              major, minor, patch = map(int, match.groups()[:3])
+              beta_no = match[4]
+              if beta_no is None:
+                  return major, minor, patch, 1, 0
+              if include_prerelease:
+                  return major, minor, patch, 0, int(beta_no or 0)
+              return None
+
+
+          def resolve_release(release_base, variant, include_prerelease):
+              release_base = release_base.rstrip("/")
+              candidates = []
+              for item in fetch_directory(f"{release_base}/"):
+                  key = release_key(item["name"], include_prerelease)
+                  if item["is_dir"] and key is not None:
+                      candidates.append((key, item["name"]))
+              if not candidates:
+                  raise ValueError("No matching Lucky release directories found")
+
+              _, release_dir = max(candidates)
+              package_version = re.sub(r"beta(\d*)$", r"_beta\1", release_dir[1:])
+              release_items = fetch_directory(f"{release_base}/{release_dir}/")
+              variant_suffix = f"_{variant}"
+              variant_dir = next(
+                  (item["name"] for item in release_items
+                   if item["is_dir"] and item["name"].endswith(variant_suffix)),
+                  None,
               )
-          ) as response:
-              assets = {item["name"] for item in json.load(response)}
+              if not variant_dir:
+                  raise ValueError(f"Release {release_dir} does not include variant {variant}")
 
-          required_arches = ("x86_64",)
-          archive_suffix = "" if variant == "lucky" else f"_{variant}"
-          missing = [
-              f"lucky_{file_version}_Linux_{arch}{archive_suffix}.tar.gz"
-              for arch in required_arches
-              if f"lucky_{file_version}_Linux_{arch}{archive_suffix}.tar.gz" not in assets
-          ]
-          if missing:
-              raise SystemExit(
-                  "Latest Lucky release is missing package assets used by lucky/Makefile: "
-                  + ", ".join(missing)
-              )
+              file_version = variant_dir[:-len(variant_suffix)]
+              url = f"{release_base}/{release_dir}/{variant_dir}/"
+              assets = {item["name"] for item in fetch_directory(url) if not item["is_dir"]}
+              archive_suffix = "" if variant == "lucky" else f"_{variant}"
+              archive = f"lucky_{file_version}_Linux_x86_64{archive_suffix}.tar.gz"
+              if archive not in assets:
+                  raise ValueError(
+                      "Latest Lucky release is missing package assets used by lucky/Makefile: "
+                      + archive
+                  )
 
-          print(f"package_version={package_version}")
-          print(f"release_dir={release_dir}")
-          print(f"file_version={file_version}")
-          print(f"variant={variant}")
-          print(f"url={release_base}/{release_dir}/{variant_dir}/")
+              return {
+                  "package_version": package_version,
+                  "release_dir": release_dir,
+                  "file_version": file_version,
+                  "variant": variant,
+                  "url": url,
+              }
+
+
+          def main():
+              if len(sys.argv) != 4 or sys.argv[3] not in ("true", "false"):
+                  raise SystemExit("Expected RELEASE_BASE VARIANT true|false")
+              try:
+                  metadata = resolve_release(sys.argv[1], sys.argv[2], sys.argv[3] == "true")
+              except (ValueError, OSError) as exc:
+                  raise SystemExit(f"Failed to resolve Lucky release: {exc}") from None
+              for key, value in metadata.items():
+                  print(f"{key}={value}")
+
+
+          if __name__ == "__main__":
+              main()
           PY
 
       - name: Update package version
