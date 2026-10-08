@@ -4,12 +4,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lucky
-PKG_VERSION:=3.0.0_beta8
-PKG_RELEASE:=1
+PKG_VERSION:=3.1.3_beta
+PKG_RELEASE:=2
 PKGARCH:=all 
 LUCKY_RELEASE_BASE:=https://release.66666.host
-LUCKY_RELEASE_DIR:=v3.0.0beta8
-LUCKY_FILE_VERSION:=3.0.0
+LUCKY_RELEASE_DIR:=v3.1.3beta
+LUCKY_FILE_VERSION:=3.1.3
 LUCKY_VARIANT:=lucky
 LUCKY_VARIANT_SUFFIX:=$(if $(filter lucky,$(LUCKY_VARIANT)),,_$(LUCKY_VARIANT))
 LUCKY_CONF_DIR := /etc/config/lucky.daji
@@ -97,6 +97,16 @@ define Package/$(PKG_NAME)/conffiles
 endef
 
 define Build/Compile
+endef
+
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+# Default APK post-upgrade calls start, which may keep the old process alive.
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ "$$(uci -q get lucky.@lucky[0].enabled)" = 1 ] && /etc/init.d/lucky running; then
+	/etc/init.d/lucky restart
+fi
+exit 0
 endef
 
 define Package/$(PKG_NAME)/install

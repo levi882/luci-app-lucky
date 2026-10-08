@@ -28,11 +28,19 @@ var callLuckyService = rpc.declare({
 	expect: { '': {} }
 });
 
+var callLuckySyncVersion = rpc.declare({
+	object: 'luci.lucky',
+	method: 'sync_version',
+	expect: { '': {} }
+});
+
 return baseclass.extend({
 	status: function() {
-		return callLuckyStatus().then(function(res) {
-			return !!res.running;
-		});
+		return callLuckyStatus();
+	},
+
+	syncVersion: function() {
+		return callLuckySyncVersion();
 	},
 
 	info: function() {

@@ -35,7 +35,7 @@ msgid "The Lucky service is not running."
 msgstr "未启动"
 
 msgid "Lucky Status"
-msgstr "Lucky服务状态"
+msgstr "Lucky运行状态"
 
 msgid "Collecting data..."
 msgstr "收集数据..."
@@ -60,9 +60,6 @@ msgstr "管理后台登录地址(http)"
 
 msgid "Lucky Arch"
 msgstr "当前环境CPU架构"
-
-msgid "Lucky Status"
-msgstr "Lucky运行状态"
 
 msgid "Lucky Compilation time"
 msgstr "编译时间"
@@ -144,3 +141,171 @@ msgstr "禁止"
 
 msgid "Basic Settings"
 msgstr "基础设置"
+
+msgid "Status unavailable"
+msgstr "状态暂不可用"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Service operation failed."
+msgstr "服务操作失败。"
+
+msgid "Confirm operation"
+msgstr "确认操作"
+
+msgid "Unable to save the setting."
+msgstr "设置保存失败。"
+
+msgid "Setting saved, but restart failed."
+msgstr "设置已保存，但重启失败。"
+
+msgid "Setting saved."
+msgstr "设置已保存。"
+
+msgid "Enter a port between 1 and 65535."
+msgstr "请输入 1 到 65535 之间的端口。"
+
+msgid "Checking process version"
+msgstr "正在读取进程版本"
+
+msgid "Service is stopped"
+msgstr "服务已停止"
+
+msgid "Unable to read service status. Retrying automatically."
+msgstr "暂时无法读取服务状态，正在自动重试。"
+
+msgid "Switching to the installed version…"
+msgstr "正在自动切换到已安装版本…"
+
+msgid "The running program matches the installed version."
+msgstr "运行中程序与已安装版本一致。"
+
+msgid "No management address available"
+msgstr "管理地址暂不可用"
+
+msgid "Allowed"
+msgstr "已允许"
+
+msgid "Local access only"
+msgstr "仅限本地访问"
+
+msgid "Disable Internet access to the management panel?"
+msgstr "确定禁止从外网访问管理面板？"
+
+msgid "Allow Internet access to the management panel?"
+msgstr "确定允许从外网访问管理面板？"
+
+msgid "Unable to read management settings."
+msgstr "暂时无法读取管理设置。"
+
+msgid "Configuration storage"
+msgstr "配置存储"
+
+msgid "NETWORK SERVICES"
+msgstr "网络服务"
+
+msgid "Port forwarding, dynamic DNS, reverse proxy and Wake-on-LAN."
+msgstr "端口转发 · 动态域名 · 反向代理 · 网络唤醒"
+
+msgid "View releases"
+msgstr "查看版本"
+
+msgid "Service overview"
+msgstr "服务概览"
+
+msgid "Stop Lucky? Active connections will be interrupted."
+msgstr "确定停止 Lucky？当前连接将会中断。"
+
+msgid "Open management panel"
+msgstr "打开管理面板"
+
+msgid "Installed version"
+msgstr "已安装版本"
+
+msgid "Running version"
+msgstr "运行中版本"
+
+msgid "Management access"
+msgstr "管理入口"
+
+msgid "HTTP port"
+msgstr "HTTP 端口"
+
+msgid "Port used by the Lucky management panel."
+msgstr "Lucky 管理面板使用的访问端口。"
+
+msgid "Path required to open the management panel."
+msgstr "打开管理面板时需要携带的访问路径。"
+
+msgid "Access protection"
+msgstr "访问保护"
+
+msgid "Control remote access to the management panel."
+msgstr "控制是否允许从外网访问管理面板。"
+
+msgid "Login credentials"
+msgstr "登录凭据"
+
+msgid "Reset only if you have forgotten your login."
+msgstr "忘记账号或密码时，可重置登录凭据。"
+
+msgid "Reset login"
+msgstr "重置登录"
+
+msgid "Manage forwarding rules and other features in the Lucky management panel."
+msgstr "转发规则及其他功能，请在 Lucky 管理面板中设置。"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Disable"
+msgstr "禁用"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Use a path starting with /, containing letters, numbers, - or _."
+msgstr "请输入以 / 开头的路径，仅使用字母、数字、- 或 _。"
+
+msgid "Version switch did not complete. Use Restart to try again."
+msgstr "版本切换未完成，可点击“重启”再次尝试。"
+
+msgid "An older process is running. The service is disabled."
+msgstr "检测到旧进程；服务已停用。"
+
+msgid "An older process is running. Restart requires write access."
+msgstr "检测到旧进程；需要管理权限才能重启。"
+
+msgid "The running program needs to be updated."
+msgstr "运行中的程序尚未更新。"
+
+msgid "Unable to switch to the installed version."
+msgstr "无法切换到已安装版本。"

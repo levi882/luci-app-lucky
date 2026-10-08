@@ -6,10 +6,10 @@ OpenWrt LuCI support package for Lucky.
 
 ## 当前版本
 
-- Lucky 本体: `3.0.0_beta8`（仓库内的包版本；自动更新会创建新版本 PR）
+- Lucky 本体: `3.1.3_beta`（包修订 `r2`）
 - 上游下载源: `https://release.66666.host`
-- 上游目录: `v3.0.0beta8/3.0.0_lucky`
-- 上游文件: `lucky_3.0.0_Linux_x86_64.tar.gz`
+- 上游目录: `v3.1.3beta/3.1.3_lucky`
+- 上游文件: `lucky_3.1.3_Linux_x86_64.tar.gz`
 - LuCI 界面: `luci-app-lucky`
 - 翻译包: `luci-i18n-lucky-zh-cn`
 
@@ -38,6 +38,10 @@ apk add --allow-untrusted luci-i18n-lucky-zh-cn-*_x86_64.apk
 ```
 
 安装后可在 LuCI 菜单中找到 Lucky。
+
+新版页面分别显示已安装版本和运行中版本，避免将磁盘上的新程序误认为已在运行。Lucky 包升级后会重启已启用的运行服务；如果仍有旧进程，具有管理权限的 LuCI 页面会自动尝试一次重启并核对结果。主动停用的服务不会被自动拉起，失败时可使用页面上的“重启”按钮重试。
+
+服务概览、管理入口、访问保护和配置存储分别展示，支持深色主题及手机布局。状态刷新不会覆盖尚未保存的端口或安全入口输入。
 
 ## 卸载
 

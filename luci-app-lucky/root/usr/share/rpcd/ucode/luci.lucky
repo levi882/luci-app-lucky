@@ -2,7 +2,9 @@
 
 'use strict';
 
-import { popen } from 'fs';
+import { popen, readfile, readlink, stat, open, unlink } from 'fs';
+
+const infoCache = {};
 
 function shellquote(value) {
 	return "'" + join("'\\''", split(value ?? '', "'")) + "'";
@@ -21,7 +23,83 @@ function readCommand(command) {
 }
 
 function getConfigDir() {
-	return readCommand('uci -q get lucky.@lucky[0].configdir');
+	return readCommand('uci -q get lucky.@lucky[0].configdir') || '/etc/config/lucky.daji';
+}
+
+function parseJSON(value) {
+	try { return json(value); }
+	catch (e) { return null; }
+}
+
+function fileIdentity(path) {
+	const info = stat(path);
+	return info ? join(':', [info.dev.major, info.dev.minor, info.inode, info.size, info.mtime]) : '';
+}
+
+function binaryInfo(path, identity) {
+	if (!identity)
+		return null;
+	if (infoCache[path]?.identity == identity)
+		return infoCache[path].info;
+	const info = parseJSON(readCommand(shellquote(path) + ' -info 2>/dev/null'));
+	const validInfo = type(info?.Version) == 'string' ? info : null;
+	infoCache[path] = { identity, info: validInfo };
+	return validInfo;
+}
+
+function getStatus() {
+	const identity = fileIdentity('/usr/bin/lucky');
+	const installed = binaryInfo('/usr/bin/lucky', identity);
+	const service = parseJSON(readCommand("ubus call service list '{\"name\":\"lucky\"}'"));
+	if (service == null)
+		return { running: null, error: 'service_status_unavailable' };
+	let pid = null;
+	let runtime = null;
+	let stale = false;
+	let managed = false;
+	for (let name, instance in service?.lucky?.instances ?? {}) {
+		if (!instance.running || !instance.pid)
+			continue;
+		const path = '/proc/' + instance.pid + '/exe';
+		const target = readlink(path);
+		// Inspect only the process owned by this service, never a pgrep match.
+		if (target != '/usr/bin/lucky' && target != '/usr/bin/lucky (deleted)')
+			continue;
+		pid = instance.pid;
+		managed = true;
+		const runtimeIdentity = fileIdentity(path);
+		stale = !!identity && !!runtimeIdentity && runtimeIdentity != identity;
+		// Cache by process lifetime and inode; do not run -info on every poll.
+		const processIdentity = runtimeIdentity + ':' + (stat('/proc/' + pid)?.inode ?? '');
+		runtime = stale ? binaryInfo(path, processIdentity) : installed;
+		for (let cachedPath in infoCache)
+			if (cachedPath != '/usr/bin/lucky' && cachedPath != path)
+				delete infoCache[cachedPath];
+		break;
+	}
+	const enabled = readCommand('uci -q get lucky.@lucky[0].enabled') == '1';
+	const attempted = !!identity && readfile('/tmp/lucky-version-sync') == identity;
+	return {
+		running: pid != null, enabled, managed, pid,
+		installed: !!identity, installedInfo: installed, runtimeInfo: runtime,
+		stale, autoRestartAllowed: enabled && managed && stale && installed != null && !attempted,
+		autoRestartAttempted: attempted
+	};
+}
+
+function syncVersion() {
+	// This method is in the write ACL. Status and info always remain read-only.
+	const status = getStatus();
+	if (!status.autoRestartAllowed)
+		return { ret: 0, restarted: false, status };
+	const marker = open('/tmp/lucky-version-sync', 'w', 0600);
+	if (!marker)
+		return { ret: 1, restarted: false };
+	marker.write(fileIdentity('/usr/bin/lucky'));
+	marker.close();
+	// Keep the user's enable/disable preference; one attempt per installed build.
+	const success = system(['/etc/init.d/lucky', 'restart']) == 0;
+	return { ret: success ? 0 : 1, restarted: success };
 }
 
 function getBaseConfigureInfo() {
@@ -46,13 +124,14 @@ function serviceAction(action) {
 	if (action == 'restart' || action == 'start') {
 		system(['uci', 'set', 'lucky.@lucky[0].enabled=1']);
 		system(['uci', 'commit', 'lucky']);
-		return system(['service', 'lucky', action]) == 0;
+		unlink('/tmp/lucky-version-sync');
+		return system(['/etc/init.d/lucky', action]) == 0;
 	}
 
 	if (action == 'stop') {
 		system(['uci', 'set', 'lucky.@lucky[0].enabled=0']);
 		system(['uci', 'commit', 'lucky']);
-		return system(['service', 'lucky', 'stop']) == 0;
+		return system(['/etc/init.d/lucky', 'stop']) == 0;
 	}
 
 	return false;
@@ -61,14 +140,15 @@ function serviceAction(action) {
 const methods = {
 	status: {
 		call: function() {
-			return { running: system("pgrep -f 'lucky -c' >/dev/null") == 0 };
+			return getStatus();
 		}
 	},
 
 	info: {
 		call: function() {
+			const installed = getStatus().installedInfo;
 			return {
-				luckyInfo: readCommand('/usr/bin/lucky -info'),
+				luckyInfo: installed ? sprintf('%J', installed) : '',
 				LuckyBaseConfigure: getBaseConfigureInfo(),
 				luckyArch: readCommand('/usr/bin/luckyarch')
 			};
@@ -90,8 +170,7 @@ const methods = {
 			}
 			else if (key == 'reset_auth_info') {
 				success = setLuckyConf('AdminAccount', '666') &&
-					setLuckyConf('AdminPassword', '666') &&
-					serviceAction('restart');
+					setLuckyConf('AdminPassword', '666');
 			}
 			else if (key == 'switch_Internetaccess') {
 				success = setLuckyConf('AllowInternetaccess', value);
@@ -99,6 +178,10 @@ const methods = {
 
 			return { ret: success ? 0 : 1 };
 		}
+	},
+
+	sync_version: {
+		call: function() { return syncVersion(); }
 	},
 
 	service: {

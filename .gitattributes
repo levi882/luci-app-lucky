@@ -1,0 +1,10 @@
+* text=auto
+*.js text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.po text eol=lf
+*.init text eol=lf
+*.sh text eol=lf
+Makefile text eol=lf
+**/rpcd/ucode/* text eol=lf
+luci-app-lucky/root/usr/bin/* text eol=lf

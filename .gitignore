@@ -1,0 +1,4 @@
+.lucky-preview/
+__pycache__/
+/tests/
+/previews/lucky-local-*.png

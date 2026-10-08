@@ -2,370 +2,258 @@
 'require view';
 'require form';
 'require poll';
+'require ui';
 'require tools.lucky as lucky';
 
-var state = {
-	installed: false,
-	adminUrl: ''
-};
+var state = { status: null, adminUrl: '', arch: '', readonly: true, busy: false, syncing: false, syncUntil: 0, syncFailed: false };
 
-function clearNode(node) {
-	while (node && node.firstChild)
-		node.removeChild(node.firstChild);
+function content(id, value) {
+	var node = document.getElementById(id);
+	if (!node) return;
+	while (node.firstChild) node.removeChild(node.firstChild);
+	node.appendChild(typeof value === 'string' ? document.createTextNode(value) : value);
 }
 
-function appendContent(node, content) {
-	if (!node)
-		return;
+function button(label, handler, primary, id) {
+	return E('button', { type: 'button', id: id, 'class': 'btn cbi-button lucky-button' + (primary ? ' lucky-primary' : ''),
+		disabled: state.readonly || null, click: handler }, label);
+}
 
-	clearNode(node);
+function notify(message, error) {
+	ui.addNotification(null, E('p', {}, message), error ? 'error' : 'info');
+}
 
-	if (Array.isArray(content)) {
-		for (var i = 0; i < content.length; i++)
-			node.appendChild(typeof content[i] === 'string' ? document.createTextNode(content[i]) : content[i]);
+function applyBusy() {
+	document.querySelectorAll('.lucky-page button').forEach(function(node) {
+		node.disabled = state.readonly || state.busy || state.syncing;
+	});
+	['lucky-toggle', 'lucky-restart'].forEach(function(id) {
+		var node = document.getElementById(id);
+		if (node && (!state.status || !state.status.installed)) node.disabled = true;
+	});
+	var open = document.getElementById('lucky-open');
+	if (open) {
+		open.href = state.adminUrl || '#';
+		open.setAttribute('aria-disabled', String(!state.status || !state.status.running || !state.adminUrl));
 	}
-	else if (typeof content === 'string') {
-		node.appendChild(document.createTextNode(content));
-	}
-	else if (content) {
-		node.appendChild(content);
-	}
-}
-
-function badge(text, color) {
-	return E('strong', { style: 'color:' + color }, text);
-}
-
-function actionButton(title, style, handler) {
-	var button = E('button', {
-		type: 'button',
-		'class': 'btn cbi-button cbi-button-' + (style || 'button')
-	}, title);
-
-	button.addEventListener('click', handler);
-	return button;
-}
-
-function externalLink(url) {
-	return E('a', {
-		href: url,
-		target: '_blank',
-		rel: 'noreferrer noopener'
-	}, url);
-}
-
-function space() {
-	return document.createTextNode('      ');
-}
-
-function openURL(url) {
-	var win = window.open(url, '_blank');
-
-	if (win == null || typeof win === 'undefined')
-		window.location.href = url;
 }
 
 function serviceAction(action) {
+	if (state.readonly || state.busy || state.syncing) return Promise.resolve();
+	state.busy = true;
+	state.syncFailed = false;
+	applyBusy();
 	return lucky.service(action).then(function(res) {
-		if (!res || res.ret !== 0)
-			throw new Error('service action failed');
-
+		if (res.ret !== 0) throw new Error(_('Service operation failed.'));
 		return refreshStatus();
-	}).catch(function() {
-		alert(_('update failed'));
+	}).catch(function(error) { notify(error.message, true); }).finally(function() {
+		state.busy = false;
+		applyBusy();
 	});
 }
 
-function setLuckyConfig(key, value) {
+function confirmAction(message, handler) {
+	ui.showModal(_('Confirm operation'), [ E('p', {}, message), E('div', { 'class': 'right' }, [
+		E('button', { 'class': 'btn', click: ui.hideModal }, _('Cancel')), ' ',
+		E('button', { 'class': 'btn cbi-button-action', click: function() { ui.hideModal(); handler(); } }, _('Confirm'))
+	]) ]);
+}
+
+function saveSetting(key, value) {
+	if (state.readonly || state.busy || state.syncing) return;
+	state.busy = true;
+	applyBusy();
 	return lucky.setConfig(key, value).then(function(res) {
-		if (!res || res.ret !== 0) {
-			alert(_('update failed'));
-			return;
-		}
-
-		alert(_('update success'));
-		return serviceAction('restart').then(refreshInfo);
-	}).catch(function() {
-		alert(_('update failed'));
+		if (res.ret !== 0) throw new Error(_('Unable to save the setting.'));
+		// Editing settings must not turn a deliberately stopped service back on.
+		if (state.status && state.status.running && state.status.enabled)
+			return lucky.service('restart').then(function(result) {
+				if (result.ret !== 0) throw new Error(_('Setting saved, but restart failed.'));
+			});
+	}).then(function() {
+		notify(_('Setting saved.'));
+		return refreshInfo().then(refreshStatus);
+	}).catch(function(error) { notify(error.message, true); }).finally(function() {
+		state.busy = false;
+		applyBusy();
 	});
 }
 
-function switchInternetAccess(allow) {
-	var message = allow ? _('Are you sure Enalbe Internetaccess?') : _('Are you sure Disable Internetaccess?');
-
-	if (confirm(message))
-		return setLuckyConfig('switch_Internetaccess', allow ? 'true' : 'false');
-}
-
-function changeHttpPort() {
-	var input = document.getElementById('_luckyHttpPortInput');
-	var value = input ? input.value.trim() : '';
-	var port;
-
-	if (!/^\d+$/.test(value)) {
-		alert(_('portValueError'));
+function changePort() {
+	var value = document.getElementById('lucky-port').value.trim();
+	if (!/^\d+$/.test(value) || +value < 1 || +value > 65535) {
+		notify(_('Enter a port between 1 and 65535.'), true);
 		return;
 	}
-
-	port = parseInt(value, 10);
-
-	if (port <= 0 || port > 65535) {
-		alert(_('portValueError'));
-		return;
-	}
-
-	return setLuckyConfig('admin_http_port', String(port));
+	return saveSetting('admin_http_port', String(+value));
 }
 
 function changeSafeURL() {
-	var input = document.getElementById('_luckySafeURLInput');
-	var value = input ? input.value.trim() : '';
-
-	return setLuckyConfig('admin_safe_url', value);
+	var value = document.getElementById('lucky-safe-url').value.trim();
+	if (value && !/^\/[A-Za-z0-9_\-/]*$/.test(value)) {
+		notify(_('Use a path starting with /, containing letters, numbers, - or _.'), true);
+		return;
+	}
+	return saveSetting('admin_safe_url', value);
 }
 
-function resetAuthInfo() {
-	if (confirm(_('Reset 666 as admin account and password?')))
-		return setLuckyConfig('reset_auth_info', '');
+function statusLabel(text, kind) {
+	return E('span', { 'class': 'lucky-badge lucky-' + kind }, [ E('span', { 'class': 'lucky-dot' }), text ]);
 }
 
-function updateStatus(running) {
-	var status = document.getElementById('_luckyStatus');
-	var adminOpen = document.getElementById('_luckyAdminOpen');
-
-	if (running) {
-		appendContent(status, [
-			badge(_('The Lucky service is running.'), 'green'),
-			space(),
-			actionButton(_('Stop'), 'reload', function() {
-				if (confirm(_('are you sure stop lucky service?')))
-					serviceAction('stop');
-			})
-		]);
-		appendContent(adminOpen, state.adminUrl ? externalLink(state.adminUrl) : '');
-	}
-	else if (state.installed) {
-		appendContent(status, [
-			badge(_('The Lucky service is not running.'), 'red'),
-			space(),
-			actionButton(_('Start'), 'reload', function() {
-				if (confirm(_('are you sure start lucky service?')))
-					serviceAction('start');
-			})
-		]);
-		appendContent(adminOpen, '');
-	}
-	else {
-		appendContent(status, badge(_('Not installed'), 'red'));
-		appendContent(adminOpen, '');
-	}
+function updateStatus(status) {
+	state.status = status;
+	var installed = status && status.installedInfo;
+	var runtime = status && status.runtimeInfo;
+	var running = status && status.running;
+	var label = !status ? _('Status unavailable') : !status.installed ? _('Not installed') : running ? _('Running') : _('Stopped');
+	content('lucky-state', statusLabel(label, !status ? 'muted' : running ? (status.stale ? 'warning' : 'success') : 'muted'));
+	content('lucky-installed-version', installed ? installed.Version || '—' : '—');
+	content('lucky-runtime-version', runtime ? runtime.Version || '—' : running ? _('Unknown') : '—');
+	content('lucky-installed-date', installed ? installed.Date || '—' : '—');
+	content('lucky-runtime-date', runtime ? runtime.Date || '—' : running ? _('Checking process version') : _('Service is stopped'));
+	content('lucky-arch', state.arch || (installed ? installed.ARCH || '—' : '—'));
+	var toggle = document.getElementById('lucky-toggle');
+	if (toggle) toggle.textContent = running ? _('Stop') : _('Start');
+	var restart = document.getElementById('lucky-restart');
+	if (restart) restart.hidden = !running;
+	var notice = document.getElementById('lucky-sync-notice');
+	var message;
+	if (!status) message = _('Unable to read service status. Retrying automatically.');
+	else if (state.syncFailed || (status.stale && status.autoRestartAttempted && !state.syncing))
+		message = _('Version switch did not complete. Use Restart to try again.');
+	else if (state.syncing) message = _('Switching to the installed version…');
+	else if (status.stale && !status.enabled) message = _('An older process is running. The service is disabled.');
+	else if (status.stale && state.readonly) message = _('An older process is running. Restart requires write access.');
+	else if (status.stale) message = _('The running program needs to be updated.');
+	else if (running) message = _('The running program matches the installed version.');
+	else message = _('Service is stopped');
+	if (notice) notice.className = 'lucky-notice ' + (status && status.stale ? 'lucky-notice-warning' : '');
+	content('lucky-sync-notice', message);
+	applyBusy();
 }
 
 function refreshStatus() {
-	return L.resolveDefault(lucky.status(), false).then(function(running) {
-		updateStatus(!!running);
-	});
-}
-
-function renderLatestButton() {
-	return actionButton(_('get latest version'), 'reload', function() {
-		openURL('https://release.66666.host/');
-	});
-}
-
-function setNotInstalled() {
-	var ids = [
-		'_luckyInstallStatus',
-		'_luckyCompilationTime',
-		'_luckyVersion',
-		'_luckyLoginInfo',
-		'_luckyAdminOpen',
-		'_luckyHttpPort',
-		'_luckySafeURL',
-		'_luckyAllowInternetaccess'
-	];
-
-	state.installed = false;
-	state.adminUrl = '';
-
-	for (var i = 0; i < ids.length; i++)
-		appendContent(document.getElementById(ids[i]), badge(_('Not installed'), 'red'));
-
-	appendContent(document.getElementById('_luckyVersion'), [
-		badge(_('Not installed'), 'red'),
-		space(),
-		renderLatestButton()
-	]);
-	updateStatus(false);
+	return lucky.status().then(function(status) {
+		if (typeof status.running !== 'boolean') throw new Error('Invalid status');
+		if (state.syncing && status.running && !status.stale) {
+			state.syncing = false;
+			state.syncFailed = false;
+		}
+		else if (state.syncing && Date.now() > state.syncUntil) {
+			state.syncing = false;
+			state.syncFailed = true;
+		}
+		updateStatus(status);
+		if (status.autoRestartAllowed && !state.readonly && !state.busy && !state.syncing && !state.syncFailed) {
+			state.syncing = true;
+			state.syncUntil = Date.now() + 30000;
+			updateStatus(status);
+			return lucky.syncVersion().then(function(result) {
+				if (result.ret !== 0) throw new Error(_('Unable to switch to the installed version.'));
+				if (!result.restarted) state.syncing = false;
+			}).catch(function(error) {
+				state.syncing = false;
+				state.syncFailed = true;
+				updateStatus(state.status);
+				notify(error.message, true);
+			});
+		}
+	}).catch(function() { updateStatus(null); });
 }
 
 function refreshInfo() {
-	return L.resolveDefault(lucky.info(), null).then(function(info) {
-		var luckyInfo = null;
-		var baseConfig;
-		var port;
-		var safeURL;
-		var allowInternetAccess;
-
-		if (!info)
-			return;
-
-		appendContent(document.getElementById('_luckyArch'), badge((info.luckyArch || '').trim() || '-', 'blue'));
-
-		if (!info.luckyInfo || !String(info.luckyInfo).trim()) {
-			setNotInstalled();
-			return refreshStatus();
+	return lucky.info().then(function(info) {
+		state.arch = (info.luckyArch || '').trim();
+		var config = info.LuckyBaseConfigure || {};
+		if (typeof config === 'string') {
+			try { config = JSON.parse(config).BaseConfigure || {}; }
+			catch (e) { config = {}; }
 		}
-
-		try {
-			luckyInfo = JSON.parse(info.luckyInfo);
-		}
-		catch (e) {
-			luckyInfo = {};
-		}
-
-		baseConfig = info.LuckyBaseConfigure || {};
-		if (typeof baseConfig === 'string') {
-			try {
-				baseConfig = JSON.parse(baseConfig).BaseConfigure || {};
-			}
-			catch (e) {
-				baseConfig = {};
-			}
-		}
-		port = baseConfig.AdminWebListenPort || '';
-		safeURL = baseConfig.SafeURL || baseConfig.SetSafeURL || '';
-		allowInternetAccess = baseConfig.AllowInternetaccess === true ||
-			baseConfig.AllowInternetaccess === 'true' ||
-			baseConfig.AllowInternetaccess === 1 ||
-			baseConfig.AllowInternetaccess === '1';
-		state.installed = true;
-		state.adminUrl = port ? 'http://' + window.location.hostname + ':' + port : '';
-
-		if (state.adminUrl && safeURL)
-			state.adminUrl += safeURL;
-
-		appendContent(document.getElementById('_luckyInstallStatus'), badge(_('Installed'), 'green'));
-		appendContent(document.getElementById('_luckyCompilationTime'), badge(luckyInfo.Date || '-', 'green'));
-		appendContent(document.getElementById('_luckyVersion'), [
-			badge(luckyInfo.Version || '-', 'green'),
-			space(),
-			renderLatestButton()
-		]);
-		appendContent(document.getElementById('_luckyLoginInfo'), [
-			badge(_('DefaultAuth') + ':666', 'green'),
-			space(),
-			actionButton(_('Reset'), 'reload', resetAuthInfo)
-		]);
-		appendContent(document.getElementById('_luckyHttpPort'), [
-			E('input', {
-				id: '_luckyHttpPortInput',
-				type: 'text',
-				'class': 'cbi-input-text',
-				style: 'width:30%',
-				inputmode: 'numeric',
-				pattern: '[0-9]*',
-				value: port
-			}),
-			space(),
-			actionButton(_('Change'), 'reload', changeHttpPort)
-		]);
-		appendContent(document.getElementById('_luckySafeURL'), [
-			E('input', {
-				id: '_luckySafeURLInput',
-				type: 'text',
-				'class': 'cbi-input-text',
-				style: 'width:30%',
-				value: safeURL
-			}),
-			space(),
-			actionButton(_('Change'), 'reload', changeSafeURL)
-		]);
-
-		if (allowInternetAccess) {
-			appendContent(document.getElementById('_luckyAllowInternetaccess'), [
-				badge(_('allow'), 'green'),
-				space(),
-				actionButton(_('Disable'), 'reload', function() {
-					switchInternetAccess(false);
-				})
-			]);
-		}
-		else {
-			appendContent(document.getElementById('_luckyAllowInternetaccess'), [
-				badge(_('not allow'), 'red'),
-				space(),
-				actionButton(_('Enable'), 'reload', function() {
-					switchInternetAccess(true);
-				})
-			]);
-		}
-
-		return refreshStatus();
-	});
+		var port = config.AdminWebListenPort || '';
+		var safeURL = config.SafeURL || config.SetSafeURL || '';
+		var host = window.location.hostname;
+		if (host.indexOf(':') !== -1 && host[0] !== '[') host = '[' + host + ']';
+		state.adminUrl = port ? 'http://' + host + ':' + port + (safeURL ? '/' + safeURL.replace(/^\/+/, '') : '') : '';
+		content('lucky-admin-url', state.adminUrl || _('No management address available'));
+		// These inputs are refreshed only at load or after a saved change, not by polling.
+		document.getElementById('lucky-port').value = port;
+		document.getElementById('lucky-safe-url').value = safeURL;
+		var allow = [true, 'true', 1, '1'].indexOf(config.AllowInternetaccess) !== -1;
+		content('lucky-internet-state', statusLabel(allow ? _('Allowed') : _('Local access only'), allow ? 'warning' : 'success'));
+		var toggle = document.getElementById('lucky-internet-toggle');
+		toggle.textContent = allow ? _('Disable') : _('Enable');
+		toggle.onclick = function() {
+			confirmAction(allow ? _('Disable Internet access to the management panel?') : _('Allow Internet access to the management panel?'), function() {
+				saveSetting('switch_Internetaccess', allow ? 'false' : 'true');
+			});
+		};
+		applyBusy();
+	}).catch(function() { notify(_('Unable to read management settings.'), true); });
 }
 
-function infoRow(label, id) {
-	return E('tr', {}, [
-		E('td', { style: 'font-weight:bold; padding-right:1em' }, label),
-		E('td', { id: id }, _('Collecting data...'))
-	]);
+function metric(label, id, captionId) {
+	return E('div', { 'class': 'lucky-metric' }, [ E('span', { 'class': 'lucky-label' }, label),
+		E('strong', { id: id, 'class': 'lucky-version' }, '—'), E('span', { id: captionId, 'class': 'lucky-caption' }, _('Collecting data...')) ]);
 }
 
-function renderStatusSections() {
-	return E('div', { 'class': 'lucky-status' }, [
-		E('fieldset', { 'class': 'cbi-section' }, [
-			E('legend', {}, _('Main Program Information')),
-			E('table', {}, [
-				infoRow(_('Installation Status'), '_luckyInstallStatus'),
-				infoRow(_('Lucky Status'), '_luckyStatus'),
-				infoRow(_('Lucky Arch'), '_luckyArch'),
-				infoRow(_('Compilation Time'), '_luckyCompilationTime'),
-				infoRow(_('Lucky Version'), '_luckyVersion')
-			])
-		]),
-		E('fieldset', { 'class': 'cbi-section' }, [
-			E('legend', {}, _('Admin Panel Information')),
-			E('table', {}, [
-				infoRow(_('Admin Panel'), '_luckyAdminOpen'),
-				infoRow(_('Admin Panel Login Info'), '_luckyLoginInfo'),
-				infoRow(_('Lucky Admin Http Port'), '_luckyHttpPort'),
-				infoRow(_('Admin Safe URL'), '_luckySafeURL'),
-				infoRow(_('Allow Internet access'), '_luckyAllowInternetaccess')
-			])
-		])
-	]);
+function setting(label, description, input, handler) {
+	return E('div', { 'class': 'lucky-setting' }, [ E('label', { 'for': input.id, 'class': 'lucky-label' }, label),
+		E('div', { 'class': 'lucky-input-action' }, [ E('input', Object.assign({ 'class': 'cbi-input-text', disabled: state.readonly || null }, input)), button(_('Change'), handler) ]),
+		E('p', { 'class': 'lucky-caption' }, description) ]);
 }
 
 return view.extend({
 	render: function() {
-		var m;
-		var s;
-		var o;
-		var sections = renderStatusSections();
-
-		m = new form.Map('lucky', _('Lucky'), _('ipv4/ipv6 portforward,ddns,reverseproxy proxy,wake on lan,IOT and more...'));
-
-		s = m.section(form.TypedSection, 'lucky', _('Basic Settings'));
-		s.addremove = false;
+		state.readonly = !L.hasViewPermission();
+		var m = new form.Map('lucky');
+		var s = m.section(form.TypedSection, 'lucky', _('Configuration storage'));
 		s.anonymous = true;
-
-		o = s.option(form.Value, 'configdir', _('Config dir path'), _('The path to store the config file'));
+		s.addremove = false;
+		var o = s.option(form.Value, 'configdir', _('Config dir path'), _('The path to store the config file'));
 		o.placeholder = '/etc/config/lucky.daji';
-
-		poll.add(function() {
-			return refreshStatus();
-		}, 3);
-
+		o.rmempty = false;
 		return m.render().then(function(mapNode) {
-			window.setTimeout(refreshInfo, 0);
-			return E('div', {}, [ mapNode, sections ]);
+			var page = E('div', { 'class': 'lucky-page' }, [
+				E('link', { rel: 'stylesheet', href: L.resource('view/lucky/lucky.css') }),
+				E('div', { 'class': 'lucky-heading' }, [ E('div', {}, [ E('span', { 'class': 'lucky-eyebrow' }, _('NETWORK SERVICES')),
+					E('h2', {}, 'Lucky'), E('p', {}, _('Port forwarding, dynamic DNS, reverse proxy and Wake-on-LAN.')) ]),
+					E('a', { 'class': 'lucky-doc-link', href: 'https://release.66666.host/', target: '_blank', rel: 'noopener noreferrer' }, _('View releases') + ' ↗') ]),
+				E('section', { 'class': 'lucky-card lucky-overview' }, [
+					E('div', { 'class': 'lucky-card-heading' }, [ E('div', {}, [ E('h3', {}, _('Service overview')), E('div', { id: 'lucky-state' }, statusLabel(_('Collecting data...'), 'muted')) ]),
+						E('div', { 'class': 'lucky-actions' }, [
+							button(_('Restart'), function() { serviceAction('restart'); }, false, 'lucky-restart'),
+							button(_('Start'), function() {
+								if (state.status && state.status.running) confirmAction(_('Stop Lucky? Active connections will be interrupted.'), function() { serviceAction('stop'); });
+								else serviceAction('start');
+							}, false, 'lucky-toggle'),
+							E('a', { id: 'lucky-open', 'class': 'lucky-button lucky-primary', href: '#', target: '_blank', rel: 'noopener noreferrer', 'aria-disabled': 'true', click: function(ev) {
+								if (this.getAttribute('aria-disabled') === 'true') ev.preventDefault();
+							} }, _('Open management panel') + ' ↗')
+						]) ]),
+					E('div', { 'class': 'lucky-metrics' }, [ metric(_('Installed version'), 'lucky-installed-version', 'lucky-installed-date'), metric(_('Running version'), 'lucky-runtime-version', 'lucky-runtime-date') ]),
+					E('div', { 'class': 'lucky-overview-footer' }, [ E('span', { 'class': 'lucky-architecture' }, [ E('span', { id: 'lucky-arch' }, '—') ]), E('span', { id: 'lucky-sync-notice', 'class': 'lucky-notice', role: 'status' }, _('Collecting data...')) ]) ]),
+				E('div', { 'class': 'lucky-settings-grid' }, [
+					E('section', { 'class': 'lucky-card' }, [ E('h3', {}, _('Management access')), E('p', { id: 'lucky-admin-url', 'class': 'lucky-address' }, _('Collecting data...')),
+						setting(_('HTTP port'), _('Port used by the Lucky management panel.'), { id: 'lucky-port', type: 'text', inputmode: 'numeric', maxlength: 5 }, changePort),
+						setting(_('Admin Safe URL'), _('Path required to open the management panel.'), { id: 'lucky-safe-url', type: 'text', placeholder: '/your-path' }, changeSafeURL) ]),
+					E('section', { 'class': 'lucky-card' }, [ E('h3', {}, _('Access protection')),
+						E('div', { 'class': 'lucky-protection-row' }, [ E('div', {}, [ E('span', { 'class': 'lucky-label' }, _('Allow Internet access')), E('p', { 'class': 'lucky-caption' }, _('Control remote access to the management panel.')) ]),
+							E('div', { 'class': 'lucky-protection-action' }, [ E('span', { id: 'lucky-internet-state' }), button(_('Enable'), function() {}, false, 'lucky-internet-toggle') ]) ]),
+						E('div', { 'class': 'lucky-protection-row' }, [ E('div', {}, [ E('span', { 'class': 'lucky-label' }, _('Login credentials')), E('p', { 'class': 'lucky-caption' }, _('Reset only if you have forgotten your login.')) ]),
+							button(_('Reset login'), function() { confirmAction(_('Reset 666 as admin account and password?'), function() { saveSetting('reset_auth_info', ''); }); }) ]),
+						E('div', { 'class': 'lucky-tip' }, _('Manage forwarding rules and other features in the Lucky management panel.')) ]) ]),
+				E('div', { 'class': 'lucky-card lucky-form' }, [ mapNode ])
+			]);
+			poll.add(refreshStatus, 3);
+			window.setTimeout(function() { refreshInfo().then(refreshStatus); }, 0);
+			return page;
 		});
 	},
 
 	handleSaveApply: function(ev, mode) {
-		return this.handleSave(ev).finally(function() {
-			return serviceAction('restart');
-		});
+		return this.handleSave(ev).then(function() {
+			return ui.changes.apply(mode == '0');
+		}).then(function() { return refreshInfo().then(refreshStatus); });
 	}
 });
