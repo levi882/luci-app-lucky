@@ -217,6 +217,7 @@ jobs:
           echo "changed=true" >> "${GITHUB_OUTPUT}"
 
       - name: Create update pull request
+        id: update_pr
         if: steps.update.outputs.changed == 'true'
         shell: bash
         env:
@@ -237,6 +238,7 @@ jobs:
           git add lucky/Makefile
           git commit -m "chore: update lucky to ${LUCKY_VERSION}"
           git push --force-with-lease origin "${branch}"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
           body="$(mktemp)"
           cat > "${body}" <<EOF
@@ -420,7 +422,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.latest.outputs.package_version }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ steps.update_pr.outputs.commit_sha }}
           name: Lucky ${{ steps.latest.outputs.package_version }}
           body: |
             Lucky ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
