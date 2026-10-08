@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: read
 
 concurrency:
   group: update-lucky-version
@@ -258,6 +259,7 @@ jobs:
               --head "${branch}" \
               --title "chore: update lucky to ${LUCKY_VERSION}" \
               --body-file "${body}"
+          echo "pr_number=$(gh pr view "${branch}" --json number --jq '.number')" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve SDK URL
         if: steps.update.outputs.changed == 'true'
@@ -453,3 +455,15 @@ jobs:
           overwrite_files: true
           files: dist/*
           fail_on_unmatched_files: true
+
+      - name: Validate and approve built version update
+        if: success() && steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LUCKY_REVIEW_TOKEN: ${{ secrets.LUCKY_REVIEW_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_NUMBER: ${{ steps.update_pr.outputs.pr_number }}
+          BUILT_SHA: ${{ steps.update_pr.outputs.commit_sha }}
+        run: >-
+          python3 .github/scripts/review_lucky_update.py
+          --pr "${PR_NUMBER}" --head "${BUILT_SHA}" --local-build --approve

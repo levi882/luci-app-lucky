@@ -67,6 +67,13 @@ apk del lucky
 6. 编译 OpenWrt x86_64 APK
 7. 上传 artifact
 8. 发布 GitHub Release，并设为 Latest
+9. 验证 PR 仅修改三个版本字段、构建提交未变化，并自动批准 PR
+
+自动批准需要仓库 Actions Secret `LUCKY_REVIEW_TOKEN`。使用有本仓库写入权限的审核账号创建 fine-grained PAT，仅授权本仓库的 `Pull requests: Read and write`，然后保存到该 Secret。PR 仍由 `github-actions[bot]` 创建，审核使用 Token 所属账号；Token 到期后需要更新 Secret。
+
+审核只接受本仓库机器人提交到默认分支的 `automation/update-lucky-*` PR，仅允许修改 `lucky/Makefile` 中的 `PKG_VERSION`、`LUCKY_RELEASE_DIR`、`LUCKY_FILE_VERSION`，且必须为版本升级。额外代码、下载源、文件权限或分支的变化会停止自动批准。
+
+`.github/workflows/review-lucky-version.yml` 也会在版本更新 PR 的 APK 构建成功后审核对应提交。对于已有 PR，可手动运行 `Review Lucky Version Update`，填写 PR 编号；它会检查该提交最新的 PR 构建结果。审核读取默认分支上的脚本，不执行 PR 代码，也不会自动合并。APK 构建通过不代表路由器运行验证已经完成。
 
 手动运行时可以修改 `openwrt_release`，默认是 `25.12.2`。
 
