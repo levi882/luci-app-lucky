@@ -309,3 +309,27 @@ msgstr "运行中的程序尚未更新。"
 
 msgid "Unable to switch to the installed version."
 msgstr "无法切换到已安装版本。"
+
+msgid "Enter an absolute directory path starting with /."
+msgstr "请输入以 / 开头的绝对目录路径。"
+
+msgid "Choose a configuration directory other than /."
+msgstr "请选择具体的配置目录，不能使用根目录 /。"
+
+msgid "Do not use . or .. path components, surrounding spaces or control characters."
+msgstr "路径不能包含 . 或 .. 路径段、首尾空白或控制字符。"
+
+msgid "Invalid configuration directory path."
+msgstr "配置目录路径无效。"
+
+msgid "The path or one of its parent paths is not a directory."
+msgstr "该路径或上级路径不是目录。"
+
+msgid "The configuration directory cannot be written to. Check permissions, free space and mount status."
+msgstr "配置目录无法写入，请检查权限、剩余空间和挂载状态。"
+
+msgid "Unable to create the configuration directory."
+msgstr "无法创建配置目录。"
+
+msgid "Unable to check the configuration directory. Please try again."
+msgstr "无法检查配置目录，请稍后重试。"

@@ -213,6 +213,33 @@ return view.extend({
 		var o = s.option(form.Value, 'configdir', _('Config dir path'), _('The path to store the config file'));
 		o.placeholder = '/etc/config/lucky.daji';
 		o.rmempty = false;
+		o.forcewrite = true;
+		o.validate = function(section_id, value) {
+			if (!value || value[0] !== '/') return _('Enter an absolute directory path starting with /.');
+			if (/^\/+$/.test(value)) return _('Choose a configuration directory other than /.');
+			if (value !== value.trim() || /[\x00-\x1f\x7f]/.test(value) || /\/(?:\.|\.\.)(?:\/|$)/.test(value))
+				return _('Do not use . or .. path components, surrounding spaces or control characters.');
+			return true;
+		};
+		var writeConfigDir = o.write;
+		o.write = function(section_id, value) {
+			var option = this;
+			return lucky.prepareConfigDir(value).then(function(result) {
+				if (result.ret !== 0) {
+					var errors = {
+						invalid_path: _('Invalid configuration directory path.'),
+						not_directory: _('The path or one of its parent paths is not a directory.'),
+						not_writable: _('The configuration directory cannot be written to. Check permissions, free space and mount status.'),
+						create_failed: _('Unable to create the configuration directory.'),
+						check_failed: _('Unable to check the configuration directory. Please try again.')
+					};
+					throw new Error(errors[result.error] || errors.check_failed);
+				}
+				return writeConfigDir.call(option, section_id, value);
+			}, function() {
+				throw new Error(_('Unable to check the configuration directory. Please try again.'));
+			});
+		};
 		return m.render().then(function(mapNode) {
 			var page = E('div', { 'class': 'lucky-page' }, [
 				E('link', { rel: 'stylesheet', href: L.resource('view/lucky/lucky.css') }),

@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lucky
 PKG_VERSION:=3.1.3_beta
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKGARCH:=all 
 LUCKY_RELEASE_BASE:=https://release.66666.host
 LUCKY_RELEASE_DIR:=v3.1.3beta
@@ -113,8 +113,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/etc/config/
+	$(INSTALL_DIR) $(1)/usr/libexec/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/lucky $(1)/usr/bin/lucky
 	$(INSTALL_BIN) ./files/lucky.init $(1)/etc/init.d/lucky
+	$(INSTALL_BIN) ./files/lucky-config-dir.sh $(1)/usr/libexec/lucky-config-dir
 	$(INSTALL_CONF) $(CURDIR)/files/luckyuci $(1)/etc/config/lucky
 endef
 

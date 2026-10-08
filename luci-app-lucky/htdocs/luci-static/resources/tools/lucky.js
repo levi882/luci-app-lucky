@@ -34,7 +34,18 @@ var callLuckySyncVersion = rpc.declare({
 	expect: { '': {} }
 });
 
+var callLuckyPrepareConfigDir = rpc.declare({
+	object: 'luci.lucky',
+	method: 'prepare_config_dir',
+	params: [ 'path' ],
+	expect: { '': {} }
+});
+
 return baseclass.extend({
+	prepareConfigDir: function(path) {
+		return callLuckyPrepareConfigDir(path);
+	},
+
 	status: function() {
 		return callLuckyStatus();
 	},

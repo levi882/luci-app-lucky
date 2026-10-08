@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.lucky": [ "set_config", "service", "sync_version" ]
+				"luci.lucky": [ "set_config", "service", "sync_version", "prepare_config_dir" ]
 			},
 			"uci": [ "lucky" ]
 		}

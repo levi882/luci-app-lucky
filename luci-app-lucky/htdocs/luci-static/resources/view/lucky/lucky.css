@@ -43,11 +43,19 @@
 .lucky-protection-row .lucky-caption { margin-top: 7px; }
 .lucky-protection-action { display: flex; align-items: center; gap: 12px; }
 .lucky-tip { padding: 14px; border-radius: 8px; background: var(--lucky-soft); font-size: 12px; line-height: 1.7; opacity: .65; margin-top: 4px; }
-.lucky-page .lucky-form .cbi-map, .lucky-page .lucky-form .cbi-section { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.lucky-page .lucky-form .cbi-map,
+.lucky-page .lucky-form .cbi-section,
+.lucky-page .lucky-form .cbi-section-node { margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; }
 .lucky-form .cbi-map > h2 { display: none; }
-.lucky-form .cbi-section > h3 { margin-bottom: 20px; }
-.lucky-form .cbi-value { padding: 0; }
-.lucky-form .cbi-value-field { margin-bottom: 0; }
+.lucky-page .lucky-form .cbi-section > h3 { margin: 0 0 20px; font-size: 16px; line-height: 1.5; }
+.lucky-page .lucky-form .cbi-value { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; max-width: 640px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.lucky-page .lucky-form .cbi-value-title { flex: 0 0 auto; float: none; width: auto; min-height: 0; margin: 0; padding: 0; text-align: left; font-size: 13px; font-weight: 500; line-height: 1.5; }
+.lucky-page .lucky-form .cbi-value-field { flex: 0 1 auto; width: 100%; min-width: 0; margin: 0; padding: 0; }
+.lucky-page .lucky-form .cbi-input-text { width: 100%; max-width: none; min-height: 40px; margin: 0; padding: 9px 12px; border: 1px solid var(--lucky-border); border-radius: 8px; background: transparent; color: inherit; font-family: monospace; font-size: 13px; line-height: 1.5; box-shadow: none; }
+.lucky-page .lucky-form .cbi-input-text.cbi-input-invalid { border-color: #d45b55; }
+.lucky-page .lucky-form .cbi-value-description { margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.6; opacity: .65; }
+.lucky-page .lucky-form .cbi-value-description::before,
+.lucky-page .lucky-form .cbi-value-description::after { display: none; }
 @media (max-width: 900px) { .lucky-card-heading { align-items: flex-start; flex-direction: column; } .lucky-actions { width: 100%; } .lucky-metric { padding: 4px 16px; } }
 @media (max-width: 600px) {
 	.lucky-heading { align-items: flex-start; margin-bottom: 20px; }

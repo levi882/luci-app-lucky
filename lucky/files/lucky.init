@@ -7,13 +7,17 @@ USE_PROCD=1
 PROG=/usr/bin/lucky
 
 start_service() {
-	local enabled configdir
+	local enabled configdir result
 	enabled="$(uci -q get lucky.@lucky[0].enabled)"
 	configdir="$(uci -q get lucky.@lucky[0].configdir)"
 	[ "$enabled" = 1 ] || return 0
 	[ -x "$PROG" ] || return 1
 	[ -n "$configdir" ] || configdir='/etc/config/lucky.daji'
-	mkdir -p "$configdir" || return 1
+	result="$(/usr/libexec/lucky-config-dir "$configdir" prepare)"
+	if [ "$result" != ok ]; then
+		logger -t lucky -p daemon.err "Configuration directory check failed: ${result:-check_failed}"
+		return 1
+	fi
 
 	procd_open_instance main
 	procd_set_param command "$PROG" -cd "$configdir"

@@ -180,6 +180,17 @@ const methods = {
 		}
 	},
 
+	prepare_config_dir: {
+		args: { path: 'path' },
+		call: function(req) {
+			const path = req.args?.path;
+			if (type(path) != 'string' || index(path, '\x00') >= 0 || match(path, /[[:cntrl:]]/))
+				return { ret: 1, error: 'invalid_path' };
+			const result = readCommand('/usr/libexec/lucky-config-dir ' + shellquote(path) + ' prepare');
+			return result == 'ok' ? { ret: 0 } : { ret: 1, error: result || 'check_failed' };
+		}
+	},
+
 	sync_version: {
 		call: function() { return syncVersion(); }
 	},
