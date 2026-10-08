@@ -1,7 +1,7 @@
-"""Approve only a bot-authored Lucky version bump with verified build evidence.
+"""Review and optionally merge a bot-authored Lucky version bump after building.
 
 PR contents are read as data through the API; no code from the PR is executed.
-GH_TOKEN performs reads. LUCKY_REVIEW_TOKEN is used only to submit the review.
+GH_TOKEN reads and merges. LUCKY_REVIEW_TOKEN is used only to submit the review.
 """
 import argparse
 import base64
@@ -23,14 +23,16 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def api(path, payload=None, token=None):
+def api(path, payload=None, token=None, method=None):
     command = ['gh', 'api', path]
+    if method or payload is not None:
+        command += ['--method', method or 'POST']
     if payload is not None:
-        command += ['--method', 'POST', '--input', '-']
+        command += ['--input', '-']
     env = os.environ.copy()
     if token:
         env['GH_TOKEN'] = token
-    result = subprocess.run(command, input=json.dumps(payload) if payload else None,
+    result = subprocess.run(command, input=json.dumps(payload) if payload is not None else None,
                             text=True, capture_output=True, env=env, check=True)
     return json.loads(result.stdout)
 
@@ -153,13 +155,54 @@ def validate(root, number, expected_sha, local_build):
     return pr, package, build_url
 
 
+def package_tree(entries):
+    return {path: entry for path, entry in entries.items()
+            if path.startswith(('lucky/', 'luci-app-lucky/'))}
+
+
+def merge_validated(root, number, pr, package):
+    sha = pr['head']['sha']
+    current = api(f'{root}/pulls/{number}')
+    require(current['state'] == 'open' and not current['draft']
+            and current['head']['sha'] == sha and current['base']['sha'] == pr['base']['sha'],
+            'PR changed before merging; rerun validation')
+    base = api(f"{root}/git/ref/heads/{pr['base']['ref']}")['object']['sha']
+    require(base == pr['base']['sha'], 'Default branch changed before merging; rebuild the update')
+    built_sources = package_tree(tree(root, sha))
+    base_sources = package_tree(tree(root, base))
+    require({p: v for p, v in base_sources.items() if p != MAKEFILE}
+            == {p: v for p, v in built_sources.items() if p != MAKEFILE},
+            'Package sources on the default branch changed after the build')
+    validate_makefile(read_file(root, base), read_file(root, sha))
+    # GITHUB_TOKEN already has contents: write. The PAT remains review-only.
+    result = api(f'{root}/pulls/{number}/merge', {
+        'sha': sha, 'merge_method': 'squash',
+        'commit_title': f'chore: update lucky to {package} (#{number})',
+    }, method='PUT')
+    merged_sha = result.get('sha', '')
+    require(result.get('merged') is True and re.fullmatch(r'[0-9a-f]{40}', merged_sha),
+            'PR was not merged; no release will be published')
+    merged = api(f'{root}/pulls/{number}')
+    require(merged.get('merged') is True and merged.get('merge_commit_sha') == merged_sha,
+            'Could not confirm the merged commit')
+    require(package_tree(tree(root, merged_sha)) == built_sources,
+            'Merged package sources differ from the build; stop publishing and rebuild from main')
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+            output.write(f'merge_commit={merged_sha}\n')
+    print(f'Merged PR #{number}: {merged_sha}', flush=True)
+    return merged_sha
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pr', default='')
     parser.add_argument('--head', default='')
     parser.add_argument('--local-build', action='store_true')
     parser.add_argument('--approve', action='store_true')
+    parser.add_argument('--merge', action='store_true')
     args = parser.parse_args()
+    require(not args.merge or args.approve, 'Merging requires the approval gate')
     root = 'repos/' + os.environ['GITHUB_REPOSITORY']
     if args.pr:
         require(args.pr.isdigit() and int(args.pr) > 0, 'Invalid PR number')
@@ -185,19 +228,21 @@ def main():
            and review['state'] != 'COMMENTED']
     if own and own[-1]['state'] == 'APPROVED' and own[-1]['commit_id'] == sha:
         print('This commit is already approved by the configured reviewer')
-        return
-    # Refresh immediately before the write; pin the review to the validated commit.
-    current = api(f'{root}/pulls/{number}')
-    require(current['state'] == 'open' and not current['draft']
-            and current['head']['sha'] == sha and current['base']['sha'] == pr['base']['sha'],
-            'PR changed during validation; rerun the review')
-    result = api(f'{root}/pulls/{number}/reviews', {
-        'event': 'APPROVE', 'commit_id': sha,
-        'body': f'Automatic review: only the three Lucky version fields changed to {package}; '
-                f'the x86_64 APK build passed.\n\nBuild: {build_url}',
-    }, token=token)
-    require(result['state'] == 'APPROVED' and result['commit_id'] == sha, 'Review was not approved')
-    print('Approved: ' + result['html_url'])
+    else:
+        # Refresh immediately before the write; pin the review to the validated commit.
+        current = api(f'{root}/pulls/{number}')
+        require(current['state'] == 'open' and not current['draft']
+                and current['head']['sha'] == sha and current['base']['sha'] == pr['base']['sha'],
+                'PR changed during validation; rerun the review')
+        result = api(f'{root}/pulls/{number}/reviews', {
+            'event': 'APPROVE', 'commit_id': sha,
+            'body': f'Automatic review: only the three Lucky version fields changed to {package}; '
+                    f'the x86_64 APK build passed.\n\nBuild: {build_url}',
+        }, token=token)
+        require(result['state'] == 'APPROVED' and result['commit_id'] == sha, 'Review was not approved')
+        print('Approved: ' + result['html_url'])
+    if args.merge:
+        merge_validated(root, number, pr, package)
 
 
 if __name__ == '__main__':

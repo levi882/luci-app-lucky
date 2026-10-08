@@ -66,14 +66,18 @@ apk del lucky
 5. 创建版本更新 PR
 6. 编译 OpenWrt x86_64 APK
 7. 上传 artifact
-8. 发布 GitHub Release，并设为 Latest
-9. 验证 PR 仅修改三个版本字段、构建提交未变化，并自动批准 PR
+8. 验证 PR 仅修改三个版本字段、构建提交未变化，并自动批准 PR
+9. 自动 squash 合并到默认分支，核对合并后的包源码与构建源码一致
+10. 独立发布任务下载同一次运行的 artifact，在合并提交上发布 GitHub Release，并设为 Latest
+11. 删除已合并且提交未变化的版本更新分支
 
-自动批准需要仓库 Actions Secret `LUCKY_REVIEW_TOKEN`。使用有本仓库写入权限的审核账号创建 fine-grained PAT，仅授权本仓库的 `Pull requests: Read and write`，然后保存到该 Secret。PR 仍由 `github-actions[bot]` 创建，审核使用 Token 所属账号；Token 到期后需要更新 Secret。
+自动批准需要仓库 Actions Secret `LUCKY_REVIEW_TOKEN`。使用有本仓库写入权限的审核账号创建 fine-grained PAT，仅授权本仓库的 `Pull requests: Read and write`，然后保存到该 Secret。PR 仍由 `github-actions[bot]` 创建，审核使用 Token 所属账号；合并、发布和删除分支使用工作流自带的 `GITHUB_TOKEN`，无需增加 PAT 权限。Token 到期后需要更新 Secret。
 
 审核只接受本仓库机器人提交到默认分支的 `automation/update-lucky-*` PR，仅允许修改 `lucky/Makefile` 中的 `PKG_VERSION`、`LUCKY_RELEASE_DIR`、`LUCKY_FILE_VERSION`，且必须为版本升级。额外代码、下载源、文件权限或分支的变化会停止自动批准。
 
-`.github/workflows/review-lucky-version.yml` 也会在版本更新 PR 的 APK 构建成功后审核对应提交。对于已有 PR，可手动运行 `Review Lucky Version Update`，填写 PR 编号；它会检查该提交最新的 PR 构建结果。审核读取默认分支上的脚本，不执行 PR 代码，也不会自动合并。APK 构建通过不代表路由器运行验证已经完成。
+自动更新工作流在校验、构建或合并失败时不会发布 Release；默认分支上的包源码在构建后发生变化也会停止合并。发布任务失败后可使用 GitHub Actions 的 `Re-run failed jobs` 单独重跑发布任务，无需重新创建 PR 或构建。如果合并后的包源码因并发修改与已构建源码不一致，发布会停止，需要从 main 重新运行 `Build OpenWrt APK`。
+
+`.github/workflows/review-lucky-version.yml` 保留为单独的审核入口，在版本更新 PR 的 APK 构建成功后审核对应提交，也可手动填写 PR 编号。它只批准、不合并；自动更新工作流负责完整的合并及发布流程。审核读取可信脚本，不执行 PR 代码。APK 构建通过不代表路由器运行验证已经完成。
 
 手动运行时可以修改 `openwrt_release`，默认是 `25.12.2`。
 

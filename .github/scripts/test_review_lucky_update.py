@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import os
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -154,6 +155,87 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 review.main()
         self.assertTrue(all(payload is None for _, payload in calls))
+
+    def mock_merge(self, *, base_sha=None, head_sha=None, merged=True,
+                   source_changed=False, merged_source_changed=False):
+        writes = []
+        reads = []
+        merge_sha = 'e' * 40
+
+        def api(path, payload=None, token=None, method=None):
+            if path.endswith('/pulls/5'):
+                reads.append(path)
+                if len(reads) == 1:
+                    return {**self.pr, 'head': {**self.pr['head'], 'sha': head_sha or 'a' * 40}}
+                return {**self.pr, 'merged': True, 'merge_commit_sha': merge_sha}
+            if '/git/ref/' in path:
+                return {'object': {'sha': base_sha or 'b' * 40}}
+            if path.endswith('/merge'):
+                self.assertEqual(method, 'PUT')
+                self.assertIsNone(token, 'Merging must use GITHUB_TOKEN rather than the review PAT')
+                self.assertEqual(payload['sha'], 'a' * 40)
+                self.assertEqual(payload['merge_method'], 'squash')
+                writes.append(payload)
+                return {'merged': merged, 'sha': merge_sha}
+            self.fail('Unexpected API request: ' + path)
+
+        built_tree = {review.MAKEFILE: ('100644', 'blob', 'new'),
+                      'luci-app-lucky/rpc': ('100644', 'blob', 'rpc-built')}
+        base_tree = {review.MAKEFILE: ('100644', 'blob', 'old'),
+                     'luci-app-lucky/rpc': ('100644', 'blob', 'rpc-changed' if source_changed else 'rpc-built')}
+        merged_tree = {**built_tree, 'README.md': ('100644', 'blob', 'documentation-change')}
+        if merged_source_changed:
+            merged_tree['luci-app-lucky/rpc'] = ('100644', 'blob', 'rpc-raced')
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}), \
+                 patch.object(review, 'api', side_effect=api), \
+                 patch.object(review, 'tree', side_effect=[built_tree, base_tree, merged_tree]), \
+                 patch.object(review, 'read_file', side_effect=[BEFORE, AFTER]):
+                try:
+                    result = review.merge_validated(self.root, 5, self.pr, '3.1.4_beta')
+                except ValueError:
+                    self.assertFalse(output.exists(), 'Publication must remain gated after a failure')
+                    return None, writes
+                self.assertEqual(output.read_text(), f'merge_commit={merge_sha}\n')
+                return result, writes
+
+    def test_merge_pins_built_commit_and_emits_publication_commit(self):
+        result, writes = self.mock_merge()
+        self.assertEqual(result, 'e' * 40)
+        self.assertEqual(len(writes), 1)
+
+    def test_merge_rejects_changed_head_base_and_package_sources(self):
+        for options in ({'head_sha': 'd' * 40}, {'base_sha': 'd' * 40}, {'source_changed': True}):
+            with self.subTest(options=options):
+                result, writes = self.mock_merge(**options)
+                self.assertIsNone(result)
+                self.assertFalse(writes)
+
+    def test_failed_merge_cannot_enable_publication(self):
+        result, _ = self.mock_merge(merged=False)
+        self.assertIsNone(result)
+
+    def test_merge_race_cannot_enable_publication(self):
+        result, _ = self.mock_merge(merged_source_changed=True)
+        self.assertIsNone(result)
+
+    def test_existing_approval_still_proceeds_to_merge(self):
+        def api(path, payload=None, token=None, method=None):
+            self.assertIsNone(payload)
+            if path == 'user':
+                return {'login': 'reviewer'}
+            if '/reviews?' in path:
+                return [{'user': {'login': 'reviewer'}, 'state': 'APPROVED', 'commit_id': 'a' * 40}]
+            self.fail('Unexpected API request: ' + path)
+
+        with patch.object(review, 'validate', return_value=(self.pr, '3.1.4_beta', 'build-url')), \
+             patch.object(review, 'api', side_effect=api), \
+             patch.object(review, 'merge_validated') as merge, \
+             patch.dict(os.environ, {'LUCKY_REVIEW_TOKEN': 'fake-test-token'}), \
+             patch('sys.argv', ['review', '--pr', '5', '--approve', '--merge']):
+            review.main()
+            merge.assert_called_once_with(self.root, 5, self.pr, '3.1.4_beta')
 
 
 if __name__ == '__main__':

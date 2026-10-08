@@ -22,11 +22,19 @@ permissions:
 
 concurrency:
   group: update-lucky-version
-  cancel-in-progress: true
+  # Finish merging and publishing before another updater starts.
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.latest.outputs.package_version }}
+      release_dir: ${{ steps.latest.outputs.release_dir }}
+      file_version: ${{ steps.latest.outputs.file_version }}
+      upstream_url: ${{ steps.latest.outputs.url }}
+      built_sha: ${{ steps.update_pr.outputs.commit_sha }}
+      merge_commit: ${{ steps.merge.outputs.merge_commit }}
     env:
       RELEASE_BASE: https://release.66666.host
       LUCKY_VARIANT: lucky
@@ -40,6 +48,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Test automatic review and merge boundaries
+        run: python3 .github/scripts/test_review_lucky_update.py
 
       - name: Resolve latest upstream release
         id: latest
@@ -435,28 +446,8 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
-      - name: Publish GitHub Release
-        if: steps.update.outputs.changed == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.latest.outputs.package_version }}
-          target_commitish: ${{ steps.update_pr.outputs.commit_sha }}
-          name: Lucky ${{ steps.latest.outputs.package_version }}
-          body: |
-            Lucky ${{ steps.latest.outputs.package_version }} for OpenWrt x86_64.
-
-            Source: ${{ steps.latest.outputs.url }}
-            Release directory: ${{ steps.latest.outputs.release_dir }}
-            File version: ${{ steps.latest.outputs.file_version }}
-
-            This release was created automatically after detecting a new upstream build on https://release.66666.host/.
-          prerelease: false
-          make_latest: true
-          overwrite_files: true
-          files: dist/*
-          fail_on_unmatched_files: true
-
-      - name: Validate and approve built version update
+      - name: Validate, approve and merge built version update
+        id: merge
         if: success() && steps.update.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -466,4 +457,68 @@ jobs:
           BUILT_SHA: ${{ steps.update_pr.outputs.commit_sha }}
         run: >-
           python3 .github/scripts/review_lucky_update.py
-          --pr "${PR_NUMBER}" --head "${BUILT_SHA}" --local-build --approve
+          --pr "${PR_NUMBER}" --head "${BUILT_SHA}" --local-build --approve --merge
+
+  publish:
+    needs: update
+    if: needs.update.outputs.merge_commit != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout merged commit for branch cleanup
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update.outputs.merge_commit }}
+
+      - name: Download verified build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lucky-x86_64-${{ needs.update.outputs.version }}
+          path: dist/
+
+      - name: Publish merged version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.update.outputs.version }}
+          target_commitish: ${{ needs.update.outputs.merge_commit }}
+          name: Lucky ${{ needs.update.outputs.version }}
+          body: |
+            Lucky ${{ needs.update.outputs.version }} for OpenWrt x86_64.
+
+            Source: ${{ needs.update.outputs.upstream_url }}
+            Release directory: ${{ needs.update.outputs.release_dir }}
+            File version: ${{ needs.update.outputs.file_version }}
+
+            Published after the version update passed validation, built successfully and was merged into the default branch.
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
+          files: dist/*
+          fail_on_unmatched_files: true
+
+      - name: Delete merged update branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.update.outputs.version }}
+          BUILT_SHA: ${{ needs.update.outputs.built_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="automation/update-lucky-${VERSION}"
+          ref="repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}"
+          if ! gh api "${ref}" --jq '.object.sha' > "${RUNNER_TEMP}/branch-sha" 2> "${RUNNER_TEMP}/branch-error"; then
+            if grep -q 'HTTP 404' "${RUNNER_TEMP}/branch-error"; then
+              echo "Update branch was already deleted"
+              exit 0
+            fi
+            cat "${RUNNER_TEMP}/branch-error" >&2
+            exit 1
+          fi
+          test "$(cat "${RUNNER_TEMP}/branch-sha")" = "${BUILT_SHA}" || {
+            echo "Update branch changed after merging; preserving it" >&2
+            exit 1
+          }
+          git push --force-with-lease="refs/heads/${branch}:${BUILT_SHA}" origin ":refs/heads/${branch}"
