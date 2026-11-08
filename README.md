@@ -6,12 +6,14 @@ OpenWrt LuCI support package for Lucky.
 
 ## 当前版本
 
-- Lucky 本体: `3.1.3_beta`（包修订 `r2`）
+- Lucky 本体: `3.7.1`（包修订 `r3`）
 - 上游下载源: `https://release.66666.host`
-- 上游目录: `v3.1.3beta/3.1.3_lucky`
-- 上游文件: `lucky_3.1.3_Linux_x86_64.tar.gz`
+- 上游目录: `v3.7.1/3.7.1_lucky`
+- 上游文件: `lucky_3.7.1_Linux_x86_64.tar.gz`
 - LuCI 界面: `luci-app-lucky`
 - 翻译包: `luci-i18n-lucky-zh-cn`
+
+版本以[上游下载站](https://release.66666.host/)为准，当前最新正式版为 [Lucky v3.7.1](https://release.66666.host/v3.7.1/)（2026-11-03 发布）。
 
 注意: 上游目录中的 `beta8` 和无序号的 `beta` 分别转换为 OpenWrt APK 包版本后缀 `_beta8` 和 `_beta`。
 
